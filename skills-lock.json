@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "clean-architecture": {
+      "source": "wondelai/skills",
+      "sourceType": "github",
+      "skillPath": "clean-architecture/SKILL.md",
+      "computedHash": "41bc54cd69d52698ca747529a148d971e23587cc872db58f715b59de95ef51e6"
+    },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-design/SKILL.md",
+      "computedHash": "106acf230014cbb43ca34e6410371321b56ca742f9ee0442e8ec05bf02eb0384"
+    },
+    "springboot-patterns": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/springboot-patterns/SKILL.md",
+      "computedHash": "5902ed569b83996c1c3cc48d973f35702fadec46445a2988847d4ed725b488c5"
+    }
+  }
+}

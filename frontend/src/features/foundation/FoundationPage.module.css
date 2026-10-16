@@ -1,0 +1,28 @@
+.page {
+  width: min(100% - 2rem, 48rem);
+  margin: 0 auto;
+  padding: clamp(4rem, 13vh, 9rem) 0;
+}
+
+.kicker {
+  margin: 0 0 0.75rem;
+  color: var(--color-leaf);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-reading);
+  font-size: clamp(2.6rem, 8vw, 5rem);
+  line-height: 0.98;
+}
+
+p:not(.kicker) {
+  max-width: 40rem;
+  margin: 1.5rem 0 0;
+  color: var(--color-slate);
+  font-size: 1.125rem;
+  line-height: 1.7;
+}

@@ -1,0 +1,36 @@
+:root {
+  --color-ink: #17324d;
+  --color-slate: #526777;
+  --color-paper: #f7f9fc;
+  --color-margin: #e9f0f6;
+  --color-leaf: #2b6b5a;
+  --color-signal: #b64335;
+  --color-gold: #d8a344;
+  --font-interface: Manrope, ui-sans-serif, system-ui, sans-serif;
+  --font-reading: Literata, Georgia, serif;
+  font-family: var(--font-interface);
+  color: var(--color-ink);
+  background: var(--color-paper);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 20rem;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-gold);
+  outline-offset: 3px;
+}
