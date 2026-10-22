@@ -195,6 +195,19 @@ Exit criteria:
 - Automated checks run successfully against a clean database.
 - No secret exists in tracked files or browser-delivered configuration.
 
+### Confirmed delivery method — frontend and backend vertical slices
+
+From Phase 3 onward, the project does **not** finish all backend work before beginning the frontend. Each phase delivers one small, observable vertical slice containing:
+
+1. a frontend route/component and its loading, success, validation, and permission states;
+2. the matching REST operation, application use case, and only the required persistence change;
+3. an explicit request/response contract shared by both sides; and
+4. automated checks at the appropriate frontend, API, and database layers.
+
+The normal learning and review order is: acceptance scenario -> request/response contract -> smallest backend rule and migration -> frontend interaction -> integrated run -> defect fix -> requested code review. Mock data is acceptable only while the matching API is being built in the same slice; it must be removed before the slice closes.
+
+This prevents two expensive failure modes: a frontend designed around a DTO the backend cannot safely provide, and a backend API that has never been exercised by a real learner/admin flow.
+
 ### Phase 4 — Authentication, authorization, users, and categories
 
 Objectives:
@@ -204,10 +217,10 @@ Objectives:
 
 Deliverables:
 
-- Sign-in/sign-out and current-user flow.
-- Password hashing and protected API routes.
-- Admin user list, activation/deactivation, and safe role handling.
-- Category create/read/update/delete with same-user ownership validation.
+- Frontend sign-in/sign-out/current-user screens, route guards, form errors, and an administrator user list.
+- Backend password hashing, session handling, protected API routes, and current-user response.
+- Admin activation/deactivation controls with safe role handling.
+- Category create/read/update/delete UI and API with same-user ownership validation.
 
 Topics to learn:
 
@@ -236,10 +249,10 @@ Objectives:
 
 Deliverables:
 
-- CRUD for passages and reading tests.
+- Admin list/editor/preview UI and CRUD APIs for passages and reading tests.
 - Reusable test–passage assignment with deterministic order/part validation.
-- Editors for all three question families.
-- Preview that mirrors the learner rendering.
+- Frontend editors for all three question families, paired with backend structural validation.
+- Preview that uses the same reader-rendering components as the learner view.
 - Publish validator for missing answers, duplicate question numbers, invalid matching trees, and question-count mismatches.
 
 Topics to learn:
@@ -268,10 +281,9 @@ Objectives:
 
 Deliverables:
 
-- Passage catalogue and filters agreed during UX design.
-- Attempt lifecycle and idempotent answer upsert.
-- Rendering and answer capture for all three question families.
-- Progress indicator, autosave feedback, submit confirmation, and reconnect/reload recovery.
+- Passage catalogue/filter route and the matching published-content list API.
+- Reader rendering and answer capture for all three question families, paired with attempt start/answer-save APIs.
+- Progress indicator, autosave feedback, submit confirmation, and reconnect/reload recovery backed by the persisted attempt lifecycle.
 
 Topics to learn:
 
@@ -301,9 +313,9 @@ Objectives:
 
 Deliverables:
 
-- Full-test selection, instructions, start flow, section navigation, and completion summary.
-- One session timer derived from server timestamps.
-- Automatic submission and recovery after browser refresh or temporary disconnection.
+- Full-test selection/instructions/start/section-navigation UI paired with test-session creation APIs.
+- One browser timer derived from server timestamps, with server-authoritative expiry.
+- Automatic-submission and refresh/disconnection recovery UI paired with idempotent session finalization.
 - Session/attempt ownership consistency checks.
 
 Topics to learn:
@@ -337,7 +349,7 @@ Deliverables:
 - Backend dictionary client with finite connect/read timeouts and controlled retry behavior.
 - Local-first lookup and database caching.
 - Provider response mapper with fixture-based tests.
-- Sense-selection interface, optional audio playback, custom meaning, context snapshot, categories, and review status.
+- Sense-selection interface, optional audio playback, custom meaning, context snapshot, categories, and review status paired with learner-owned note APIs.
 - Attribution/branding display required by the provider terms.
 
 Topics to learn:
@@ -372,8 +384,8 @@ Deliverables:
 
 - Tested scoring rules for option, blank, and matching responses.
 - Full-test raw score and Academic band result.
-- Review view with submitted answer, correct answer, and explanation.
-- Learner dashboard statistics based on confirmed completed attempts only.
+- Review route with submitted answer, correct answer, and explanation from finalized-result APIs.
+- Learner dashboard statistics UI based on confirmed completed-attempt aggregation APIs only.
 
 Topics to learn:
 

@@ -33,6 +33,10 @@ Source: approved CDM semantics and `DATA_MODEL_DECISIONS.md`
 
 `task_variant` describes a recognised IELTS presentation within an approved structural family; it does not create another persisted `question_type`. `answer_input_mode` tells the active reader how to render a group without disclosing answer keys. `DIAGRAM_LABEL_COMPLETION` is deliberately excluded from the launch check because it needs a separately approved immutable asset workflow.
 
+### Draft question numbering decision (2026-10-22)
+
+Administrators no longer enter question numbers. The backend derives consecutive passage-local numbers from group display order and the submitted question order, and renumbers draft questions transactionally when groups are added or changed. Migration V4 normalizes existing draft numbers in their previous group/question order; published content is not renumbered. The author must check manually written question ranges in instructions after numbering changes. Full-test cross-passage display numbering is a later feature and is not yet implemented.
+
 ### Content-history rule
 
 Each published row is a content version. A correction creates a new draft row with `replaces_*_id` pointing to its predecessor; it never changes a published row referenced by a finalized attempt/session. A new version receives a new primary key, so historical attempts retain exact question and answer-key data without a JSON snapshot.

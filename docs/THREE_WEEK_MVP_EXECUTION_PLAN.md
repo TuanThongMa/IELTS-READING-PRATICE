@@ -22,14 +22,14 @@ The following are deliberately post-launch unless the core flow finishes early:
 
 ## Execution schedule
 
-| Period | Phases and focus | Exit evidence |
+| Period | Parallel frontend + backend slice | Exit evidence |
 |---|---|---|
 | Days 1–2 | Phase 0 closure; Phase 1 decisions and PDM | MVP acceptance scenarios, decision log, relational schema and migration plan approved |
-| Days 3–5 | Phase 2 and Phase 3 | wireframes/API catalogue; Spring Boot, frontend, PostgreSQL, migrations, health endpoint, automated baseline checks |
-| Days 6–9 | Phase 4 and the essential part of Phase 5 | authentication/authorization tests; an admin can publish one valid passage and compose a test |
-| Days 10–13 | Phase 6 and Phase 9 core | learner completes a standalone passage across all question families, receives correct score and review |
-| Days 14–16 | Phase 7 | full-test session has stable server-derived deadline, idempotent finalization, and recovery after refresh |
-| Days 17–19 | Phase 10 | critical API/E2E tests, accessibility pass for principal reader path, security and defect triage |
+| Days 3–5 | Phase 2/3: design contract, React shell, Spring Boot health, PostgreSQL, then first migration/API/UI wiring | frontend build, API health, database migration, and an integrated route demonstrated locally |
+| Days 6–9 | Phase 4/5: sign-in UI + session API, then the smallest admin passage-editor form + draft API | authentication/authorization tests; an admin can create and publish one valid passage from the real UI |
+| Days 10–13 | Phase 6/9 core: passage-library UI + published list API, reader UI + answer-save API, then submit/result UI + scoring API | learner completes a standalone passage across all question families, receives correct score and review |
+| Days 14–16 | Phase 7: full-test selection/session UI + server-timed session API and finalization | full-test session has stable server-derived deadline, idempotent finalization, and recovery after refresh |
+| Days 17–19 | Phase 8/10: vocabulary UI/API if core is stable; integrated critical API/E2E, accessibility, security and defect triage | critical learner/admin journeys pass end-to-end; accessibility pass for principal reader path |
 | Days 20–21 | Phase 11 | deployed staging/production candidate, seed demo, backup/rollback rehearsal, setup and test evidence |
 
 ## Phase rule
@@ -47,8 +47,9 @@ Any change to these proposed defaults must be made before migrations are written
 
 ## Daily operating rhythm
 
-1. Define the day’s vertical slice and acceptance cases before implementation.
-2. Implement only the smallest end-to-end route required for that slice.
-3. Run automated checks and reproduce every defect before fixing it.
-4. Update the decision/defect journal and mark the planned-versus-completed status.
-5. Keep deployment readiness current; never defer secrets, migrations, or environment configuration to the final day.
+1. Define the day’s frontend flow, API contract, persistence rule, and acceptance cases before implementation.
+2. Implement only the smallest end-to-end route required for that slice; do not complete frontend or backend in isolation.
+3. Run the frontend, API, and database together, then reproduce every defect before fixing it.
+4. Review the code together on request: intent, changed files, execution flow, verification, and deliberate omissions.
+5. Update the decision/defect journal and mark the planned-versus-completed status.
+6. Keep deployment readiness current; never defer secrets, migrations, or environment configuration to the final day.

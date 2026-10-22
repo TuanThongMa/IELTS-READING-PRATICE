@@ -58,3 +58,7 @@ No domain table, business endpoint, or screen beyond the shell is added in this 
 ## 6. Review convention
 
 When the project owner asks for a code review, explain the requested change in this order: intent, changed files, execution flow, how to run or verify it, and any deliberate omission. Prefer deletion and the smallest viable implementation over speculative abstraction.
+
+## 7. Parallel implementation rule
+
+Every next feature increment is a frontend/backend/database slice. A screen is paired with its API contract and application rule in the same increment, then exercised against the local PostgreSQL container. The team does not defer frontend integration until after all backend endpoints exist, nor does it keep a mocked frontend state after the corresponding API is available.

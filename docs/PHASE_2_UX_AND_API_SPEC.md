@@ -19,31 +19,44 @@ The project owner supplied reference captures on 2026-10-16 and approved their *
 
 Implementation will retain this frame where it improves familiarity, while applying this project's Reading Desk tokens, typography, Vietnamese copy, responsive/accessibility behaviour, and confirmed exam/privacy rules. It does not reuse the reference system's name, logo, mascot, cover artwork, user data, or other branded assets. When the reference frame conflicts with a confirmed business rule, the project rule wins—for example, no correct-answer colouring or explanation before finalization, and no dictionary/note tools in an active exam session.
 
-### Token proposal
+### Approved visual tokens — light mode
 
-| Token | Value | Use |
-|---|---:|---|
-| `ink` | `#17324D` | primary text, navigation, strong borders |
-| `slate` | `#526777` | secondary text and inactive controls |
-| `paper` | `#F7F9FC` | application canvas |
-| `margin` | `#E9F0F6` | reader gutter and quiet surfaces |
-| `signal` | `#B64335` | exam timer, destructive/error states only |
-| `leaf` | `#2B6B5A` | saved, submitted, and success states |
-| `gold` | `#D8A344` | limited warning/attention state |
+The project owner approved this palette and typography on 2026-10-22. It supersedes the earlier token proposal. Only light mode is in scope; do not implement a dark theme or theme switcher.
 
-Use `Literata` for passage text and result explanations, with a 19px desktop reading size, 1.75 line-height, and a maximum 72-character measure. Use `Manrope` for interface controls, labels, forms, and data. Body text remains sentence case; no decorative all-caps labels. The type contrast makes the passage feel like reading material rather than a database field.
+| CSS token | Value | Use |
+|---|---|---|
+| `--bg-page` | `#F8FAFC` | Page background |
+| `--surface` | `#FFFFFF` | Content surface |
+| `--border` | `#E2E8F0` | Subtle dividers and borders |
+| `--text` | `#1E293B` | Primary text |
+| `--text-secondary` | `#475569` | Secondary text |
+| `--primary` | `#2563EB` | Primary actions |
+| `--primary-hover` | `#1D4ED8` | Primary action hover |
+| `--primary-soft` | `#DBEAFE` | Soft primary background |
+| `--primary-soft-text` | `#1D4ED8` | Text on soft primary background |
+| `--on-primary` | `#FFFFFF` | Text on primary action |
+| `--success` / `--success-bg` | `#15803D` / `#DCFCE7` | Success and correct answers |
+| `--danger` / `--danger-bg` | `#B91C1C` / `#FEE2E2` | Errors and incorrect answers |
+| `--warning` / `--warning-bg` | `#B45309` / `#FEF3C7` | Warnings |
+| `--highlight` | `#FEF9C3` | Learner-created highlights |
+| `--selection` | `#BFDBFE` | Active text selection |
+| `--radius` | `8px` | Default corner radius; adapt where useful |
+
+Use `Be Vietnam Pro`, then `Noto Sans`, `system-ui`, `sans-serif` for interface text, questions and controls. Use `Source Serif 4`, then `Georgia`, `serif` for passage text. The earlier 19px desktop size, 1.75 line-height and 72-character measure are starting points to validate when the reader is designed, not fixed requirements. Use sentence case and clear Vietnamese copy.
+
+The subtle border token alone is not sufficient for input boundaries or focus indicators: select and test stronger component-specific borders and visible keyboard focus states during design. Do not rely on colour alone to communicate correct, incorrect, or other statuses. Design each screen with the owner before coding its frontend, including layout, responsive behaviour, loading, empty and error states. Apply the project's `frontend-design` skill when building the frontend. Existing foundation CSS still contains the previous tokens and must be updated when the associated interface design is approved.
 
 ### Layout principles
 
 - Desktop reader: 12-column grid; passage occupies 7 columns and question work occupies 5. The question panel is independently scrollable only after its heading remains visible.
 - Passage text is left aligned; question forms are left aligned and numbered because their order is meaningful.
-- The only strong colour is the red timer in exam mode. Practice mode intentionally has no countdown visual.
+- Use the primary blue for primary actions; reserve danger and warning colours for meaningful states. Practice mode intentionally has no countdown visual.
 - Cards are used only for a contained decision (start mode, publish confirmation, or result summary), not as the default container for every piece of content.
 - Motion is limited to a save-state change, drawer open/close, and submit confirmation; `prefers-reduced-motion` removes nonessential transitions.
 
 ### Design self-review
 
-The first instinct for an education product is a card grid with progress rings and a green completion accent. That would distract from close reading and make every state look alike. The revised direction reserves structure for actual tasks: the reading margin carries progress, the passage uses a literary face, and the question panel is a work surface. Red is not a brand decoration; it appears only when time or an error demands attention.
+The reading margin carries progress, the passage uses a literary face, and the question panel is a work surface. Use colour and decorative elements deliberately so they do not distract from close reading.
 
 ## 2. Sitemap and role navigation
 
@@ -392,7 +405,7 @@ Use `400` for malformed/validation input, `401` for unauthenticated, `403` for r
 | Area | Operation | Endpoint | Notes |
 |---|---|---|---|
 | System | health | `GET /health` | Phase 3; no sensitive diagnostics publicly exposed. |
-| Auth | sign in / out / current user | `POST /auth/sessions`, `DELETE /auth/sessions/current`, `GET /me` | Exact cookie/token transport is an ADR for Phase 4. |
+| Auth | registration / sign in / out / current user | `GET /auth/csrf`, `POST /auth/register`, `POST /auth/sessions`, `DELETE /auth/sessions/current`, `GET /me` | Registration creates a learner only. Session cookie is HttpOnly and SameSite=Lax; unsafe requests require the session CSRF token. |
 | Learner dashboard | overview and active work | `GET /dashboard` | Returns active attempts, conditional summaries, and a small recent-completed list; only the authenticated learner's data. |
 | Learner statistics | paged aggregation | `GET /statistics?dimension=ATTEMPT`, `GET /statistics?dimension=QUESTION_FAMILY`, `GET /statistics?dimension=PASSAGE` | Counts derive only from finalized attempts; dimension values are fixed and validated. |
 | Learner catalogue | reading-library read model | `GET /reading-library?format=PASSAGE&partNumber=2&progress=UNFINISHED` | Supplies the selection UI with published cards, learner-specific attempt state, question-family summary, and completion totals. `format` is `PASSAGE` or `FULL_TEST`; `partNumber` is allowed only for `PASSAGE`. |

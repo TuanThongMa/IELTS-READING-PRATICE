@@ -1,36 +1,20 @@
+@import "@fontsource/be-vietnam-pro/400.css";
+@import "@fontsource/be-vietnam-pro/600.css";
+@import "@fontsource/be-vietnam-pro/700.css";
+@import "@fontsource/source-serif-4/400.css";
 :root {
-  --color-ink: #17324d;
-  --color-slate: #526777;
-  --color-paper: #f7f9fc;
-  --color-margin: #e9f0f6;
-  --color-leaf: #2b6b5a;
-  --color-signal: #b64335;
-  --color-gold: #d8a344;
-  --font-interface: Manrope, ui-sans-serif, system-ui, sans-serif;
-  --font-reading: Literata, Georgia, serif;
-  font-family: var(--font-interface);
-  color: var(--color-ink);
-  background: var(--color-paper);
+  --bg-page: #f8fafc; --surface: #fff; --border: #e2e8f0;
+  --text: #1e293b; --text-secondary: #475569;
+  --primary: #2563eb; --primary-hover: #1d4ed8; --primary-soft: #dbeafe;
+  --primary-soft-text: #1d4ed8; --on-primary: #fff;
+  --success: #15803d; --success-bg: #dcfce7; --danger: #b91c1c; --danger-bg: #fee2e2;
+  --warning: #b45309; --warning-bg: #fef3c7; --highlight: #fef9c3; --selection: #bfdbfe;
+  --font-ui: "Be Vietnam Pro", "Noto Sans", system-ui, sans-serif;
+  --font-reading: "Source Serif 4", Georgia, serif; --radius: 8px;
+  font-family: var(--font-ui); color: var(--text); background: var(--bg-page);
 }
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  min-width: 20rem;
-  min-height: 100vh;
-  margin: 0;
-}
-
-button,
-input,
-textarea,
-select {
-  font: inherit;
-}
-
-:focus-visible {
-  outline: 3px solid var(--color-gold);
-  outline-offset: 3px;
-}
+* { box-sizing: border-box; }
+body { min-width: 320px; min-height: 100vh; margin: 0; }
+button, input { font: inherit; }
+::selection { background: var(--selection); }
+:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }

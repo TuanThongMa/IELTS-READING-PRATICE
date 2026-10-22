@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-ielts_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-local-password}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -20,6 +20,9 @@ services:
       context: ./backend
     environment:
       SERVER_PORT: 8080
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ielts_reading}
+      DB_USERNAME: ${POSTGRES_USER:-ielts_app}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-this-local-password}
     ports:
       - "8080:8080"
     depends_on:

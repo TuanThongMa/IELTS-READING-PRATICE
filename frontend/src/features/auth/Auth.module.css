@@ -1,0 +1,40 @@
+.page { min-height: 100vh; }
+.header { max-width: 1200px; margin: auto; padding: 30px 32px; }
+.brand { display: inline-flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 15px; }
+.brandMark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--radius); background: var(--primary); color: white; font-family: var(--font-reading); font-size: 21px; }
+.layout { max-width: 1100px; margin: 40px auto; padding: 0 32px 60px; display: grid; grid-template-columns: 1fr 440px; gap: 100px; align-items: center; }
+.intro h1 { font-size: clamp(30px, 3vw, 42px); line-height: 1.3; letter-spacing: -.035em; margin: 30px 0 16px; }
+.intro p { max-width: 460px; color: var(--text-secondary); line-height: 1.8; }
+.readingMark { width: 255px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--primary); padding: 20px; color: var(--text-secondary); font-size: 12px; }
+.readingMark span:first-child { color: var(--text); font-family: var(--font-reading); font-size: 19px; }
+.readingMark span:nth-child(2) { float: right; }
+.readingMark i { display: block; height: 5px; background: var(--border); margin-top: 12px; border-radius: 3px; }
+.readingMark i:last-child { width: 65%; background: var(--primary-soft); }
+.panel { background: var(--surface); padding: 38px; border: 1px solid var(--border); border-radius: 12px; }
+.panel h2 { margin: 0 0 8px; font-size: 25px; }
+.description, .switch { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+.description { margin: 0 0 28px; }
+.form { display: grid; gap: 18px; }
+.form label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
+.form input { width: 100%; min-height: 46px; border: 1px solid #94a3b8; border-radius: var(--radius); padding: 10px 12px; color: var(--text); background: var(--surface); }
+.password { display: flex; position: relative; }
+.password input { padding-right: 70px; }
+.password button { position: absolute; right: 8px; top: 5px; height: 36px; border: 0; background: transparent; color: var(--primary-soft-text); cursor: pointer; font-size: 13px; font-weight: 600; }
+.hint { margin: -10px 0 0; color: var(--text-secondary); font-size: 12px; }
+.fieldError { color: var(--danger); font-size: 13px; font-weight: 400; line-height: 1.5; }
+.form input[aria-invalid="true"] { border-color: var(--danger); }
+.error { margin: 0; padding: 12px; background: var(--danger-bg); color: var(--danger); border-radius: var(--radius); font-size: 13px; line-height: 1.5; }
+.primary { min-height: 46px; border: 0; border-radius: var(--radius); background: var(--primary); color: var(--on-primary); font-weight: 600; padding: 10px 20px; cursor: pointer; }
+.primary:hover { background: var(--primary-hover); }
+.primary:disabled { opacity: .65; cursor: wait; }
+.switch { margin: 24px 0 0; text-align: center; }
+.switch a { color: var(--primary-soft-text); font-weight: 600; }
+.status { max-width: 700px; margin: 15vh auto; padding: 24px; line-height: 1.7; }
+@media (max-width: 800px) {
+  .header { padding: 22px 24px; }
+  .layout { margin: 8px auto; padding: 0 24px 48px; max-width: 520px; grid-template-columns: 1fr; gap: 24px; }
+  .readingMark { display: none; }
+  .intro h1 { font-size: 28px; margin: 12px 0; }
+  .intro p { margin: 0; font-size: 14px; }
+  .panel { padding: 26px; }
+}
