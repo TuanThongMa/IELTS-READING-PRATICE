@@ -32,6 +32,176 @@ class IeltsReadingApplicationTest {
     private MockMvc mvc;
 
     @Test
+    @org.springframework.transaction.annotation.Transactional
+    void publishRequiresCompleteDraftAndFreezesContent() throws Exception {
+        var csrfResponse = mvc.perform(get("/auth/csrf")).andReturn();
+        var session = (MockHttpSession) csrfResponse.getRequest().getSession(false);
+        String token = JsonPath.read(csrfResponse.getResponse().getContentAsString(), "$.token");
+        mvc.perform(post("/auth/register").session(session).header("X-CSRF-TOKEN", token).contentType("application/json")
+                .content("{\"email\":\"publish-test@example.com\",\"password\":\"password123\",\"displayName\":\"Publish\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/auth/sessions").session(session).header("X-CSRF-TOKEN", token).contentType("application/json")
+                .content("{\"email\":\"publish-test@example.com\",\"password\":\"password123\"}")).andExpect(status().isOk());
+        token = JsonPath.read(mvc.perform(get("/auth/csrf").session(session)).andReturn().getResponse().getContentAsString(), "$.token");
+        mvc.perform(post("/api/admin/passages/1/publish").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isForbidden());
+        jdbc.update("UPDATE users SET role = 'ADMIN' WHERE email_normalized = ?", "publish-test@example.com");
+        mvc.perform(post("/auth/sessions").session(session).header("X-CSRF-TOKEN", token).contentType("application/json")
+                .content("{\"email\":\"publish-test@example.com\",\"password\":\"password123\"}")).andExpect(status().isOk());
+        token = JsonPath.read(mvc.perform(get("/auth/csrf").session(session)).andReturn().getResponse().getContentAsString(), "$.token");
+        jdbc.update("INSERT INTO passages (title, body, part_number, status, created_by_user_id) VALUES (?, ?, ?, ?, (SELECT user_id FROM users WHERE email_normalized = ?))", "Publish test", "text", 1, "DRAFT", "publish-test@example.com");
+        long passageId = jdbc.queryForObject("SELECT passage_id FROM passages WHERE title = ?", Long.class, "Publish test");
+        String url = "/api/admin/passages/" + passageId;
+        mvc.perform(get("/api/reading/passages/" + passageId)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/reading/passages/" + passageId).session(session)).andExpect(status().isNotFound());
+        mvc.perform(get(url + "/publish-check").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.ready").value(false));
+        mvc.perform(post(url + "/publish").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isUnprocessableEntity());
+        String group = "{\"instructions\":\"Choose\",\"questions\":[{\"questionText\":\"First\",\"answer\":\"TRUE\"}]}";
+        mvc.perform(post(url + "/question-groups").session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(group)).andExpect(status().isCreated());
+        mvc.perform(get(url + "/publish-check").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.ready").value(true));
+        long questionId = jdbc.queryForObject("SELECT q.passage_question_id FROM passage_questions q JOIN question_groups g ON g.question_group_id = q.question_group_id WHERE g.passage_id = ?", Long.class, passageId);
+        jdbc.update("UPDATE question_answer_options SET is_correct = false WHERE passage_question_id = ?", questionId);
+        mvc.perform(post(url + "/publish").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isUnprocessableEntity());
+        jdbc.update("UPDATE question_answer_options SET is_correct = true WHERE passage_question_id = ? AND option_question_id IN (SELECT option_question_id FROM option_questions WHERE answer_label = 'TRUE')", questionId);
+        mvc.perform(post(url + "/publish").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk()).andExpect(jsonPath("$.ready").value(true));
+        mvc.perform(get("/api/reading/passages/" + passageId).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.groups[0].questions[0].choices.length()").value(3))
+                .andExpect(jsonPath("$.groups[0].questions[0].answer").doesNotExist())
+                .andExpect(jsonPath("$.groups[0].questions[0].explanation").doesNotExist())
+                .andExpect(jsonPath("$.groups[0].questions[0].alternatives").doesNotExist())
+                .andExpect(jsonPath("$.groups[0].questions[0].choices[0].correct").doesNotExist());
+        mvc.perform(get("/api/reading/passages").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$[0].title").value("Publish test"))
+                .andExpect(jsonPath("$[0].inProgress").value(false)).andExpect(jsonPath("$[0].answeredCount").value(0));
+        String attemptsUrl = "/api/reading/passages/" + passageId + "/attempts";
+        var started = mvc.perform(post(attemptsUrl).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk()).andReturn();
+        int attemptId = JsonPath.read(started.getResponse().getContentAsString(), "$.id");
+        mvc.perform(get("/api/reading/attempts/" + attemptId + "/result").session(session)).andExpect(status().isConflict());
+        mvc.perform(get("/api/reading/passages").session(session)).andExpect(jsonPath("$[0].inProgress").value(true)).andExpect(jsonPath("$[0].answeredCount").value(0));
+        mvc.perform(post(attemptsUrl).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(attemptId));
+        String answerUrl = "/api/reading/attempts/" + attemptId + "/answers/" + questionId;
+        mvc.perform(put(answerUrl).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"INVALID\"}")).andExpect(status().isBadRequest());
+        mvc.perform(put(answerUrl).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"FALSE\"}")).andExpect(status().isNoContent());
+        mvc.perform(get("/api/reading/passages").session(session)).andExpect(jsonPath("$[0].answeredCount").value(1));
+        mvc.perform(get("/api/reading/attempts/" + attemptId).session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.answers[0].value").value("FALSE"));
+        mvc.perform(put(answerUrl).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"TRUE\"}")).andExpect(status().isNoContent());
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM user_answers WHERE quiz_attempt_id = ?", Integer.class, attemptId));
+        mvc.perform(put(answerUrl).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"\"}")).andExpect(status().isNoContent());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM user_answers WHERE quiz_attempt_id = ?", Integer.class, attemptId));
+        var otherCsrf = mvc.perform(get("/auth/csrf")).andReturn();
+        var otherSession = (MockHttpSession) otherCsrf.getRequest().getSession(false);
+        String otherToken = JsonPath.read(otherCsrf.getResponse().getContentAsString(), "$.token");
+        mvc.perform(post("/auth/register").session(otherSession).header("X-CSRF-TOKEN", otherToken).contentType("application/json").content("{\"email\":\"other-attempt@example.com\",\"password\":\"password123\",\"displayName\":\"Other\"}")).andExpect(status().isCreated());
+        mvc.perform(post("/auth/sessions").session(otherSession).header("X-CSRF-TOKEN", otherToken).contentType("application/json").content("{\"email\":\"other-attempt@example.com\",\"password\":\"password123\"}")).andExpect(status().isOk());
+        otherToken = JsonPath.read(mvc.perform(get("/auth/csrf").session(otherSession)).andReturn().getResponse().getContentAsString(), "$.token");
+        mvc.perform(get("/api/reading/attempts/" + attemptId).session(otherSession)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/reading/passages").session(otherSession)).andExpect(jsonPath("$[0].inProgress").value(false)).andExpect(jsonPath("$[0].answeredCount").value(0));
+        mvc.perform(put(answerUrl).session(otherSession).header("X-CSRF-TOKEN", otherToken).contentType("application/json").content("{\"value\":\"TRUE\"}")).andExpect(status().isNotFound());
+        String submitUrl = "/api/reading/attempts/" + attemptId + "/submit";
+        mvc.perform(post(submitUrl).session(otherSession).header("X-CSRF-TOKEN", otherToken)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/reading/attempts/" + attemptId + "/result").session(otherSession)).andExpect(status().isNotFound());
+        mvc.perform(post(submitUrl).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("SUBMITTED"));
+        mvc.perform(get("/api/reading/attempts/" + attemptId + "/result").session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1)).andExpect(jsonPath("$.skipped").value(1))
+                .andExpect(jsonPath("$.groups[0].questions[0].correctAnswer").value("TRUE"));
+        var submittedAt = jdbc.queryForObject("SELECT submitted_at FROM quiz_attempts WHERE quiz_attempt_id = ?", java.time.OffsetDateTime.class, attemptId);
+        mvc.perform(post(submitUrl).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("SUBMITTED"));
+        assertEquals(submittedAt, jdbc.queryForObject("SELECT submitted_at FROM quiz_attempts WHERE quiz_attempt_id = ?", java.time.OffsetDateTime.class, attemptId));
+        mvc.perform(put(answerUrl).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"TRUE\"}")).andExpect(status().isConflict());
+        mvc.perform(get("/api/reading/passages").session(session)).andExpect(jsonPath("$[0].inProgress").value(false)).andExpect(jsonPath("$[0].latestSubmittedAttemptId").value(attemptId));
+        var restarted = mvc.perform(post(attemptsUrl).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk()).andReturn();
+        int secondAttemptId = JsonPath.read(restarted.getResponse().getContentAsString(), "$.id");
+        org.junit.jupiter.api.Assertions.assertNotEquals(attemptId, secondAttemptId);
+        mvc.perform(put("/api/reading/attempts/" + secondAttemptId + "/answers/" + questionId).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"TRUE\"}")).andExpect(status().isNoContent());
+        mvc.perform(post("/api/reading/attempts/" + secondAttemptId + "/submit").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk());
+        jdbc.update("INSERT INTO passages (title, body, part_number, status, created_by_user_id) VALUES (?, ?, ?, ?, (SELECT user_id FROM users WHERE email_normalized = ?))", "History second", "text", 2, "DRAFT", "publish-test@example.com");
+        long secondPassageId = jdbc.queryForObject("SELECT passage_id FROM passages WHERE title = ?", Long.class, "History second");
+        String secondUrl = "/api/admin/passages/" + secondPassageId;
+        mvc.perform(post(secondUrl + "/question-groups").session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(group)).andExpect(status().isCreated());
+        mvc.perform(post(secondUrl + "/publish").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk());
+        var thirdStarted = mvc.perform(post("/api/reading/passages/" + secondPassageId + "/attempts").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk()).andReturn();
+        int thirdAttemptId = JsonPath.read(thirdStarted.getResponse().getContentAsString(), "$.id");
+        mvc.perform(post("/api/reading/attempts/" + thirdAttemptId + "/submit").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk());
+        mvc.perform(post(attemptsUrl).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk());
+        mvc.perform(get("/api/reading/history").session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries.length()").value(3)).andExpect(jsonPath("$.entries[0].attemptId").value(thirdAttemptId))
+                .andExpect(jsonPath("$.entries[1].attemptId").value(secondAttemptId)).andExpect(jsonPath("$.entries[1].correct").value(1))
+                .andExpect(jsonPath("$.entries[2].attemptId").value(attemptId));
+        mvc.perform(get("/api/reading/history").param("passageId", String.valueOf(passageId)).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries.length()").value(2)).andExpect(jsonPath("$.entries[0].attemptId").value(secondAttemptId));
+        mvc.perform(get("/api/reading/history").session(otherSession)).andExpect(status().isOk()).andExpect(jsonPath("$.entries.length()").value(0));
+        mvc.perform(get("/api/reading/history").param("page", "-1").session(session)).andExpect(status().isBadRequest());
+        assertEquals("PUBLISHED", jdbc.queryForObject("SELECT status FROM passages WHERE passage_id = ?", String.class, passageId));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM passages WHERE passage_id = ? AND published_at IS NOT NULL", Integer.class, passageId));
+        mvc.perform(post(url + "/publish").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isConflict());
+        mvc.perform(patch(url).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"title\":\"Edited\",\"body\":\"text\",\"partNumber\":1}")).andExpect(status().isConflict());
+        mvc.perform(post(url + "/question-groups").session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(group)).andExpect(status().isConflict());
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void matchingGroupsKeepCandidateIdentityAndValidateRules() throws Exception {
+        var response = mvc.perform(get("/auth/csrf")).andReturn();
+        var session = (MockHttpSession) response.getRequest().getSession(false);
+        String token = JsonPath.read(response.getResponse().getContentAsString(), "$.token");
+        String credentials = "{\"email\":\"matching-test@example.com\",\"password\":\"password123\"}";
+        mvc.perform(post("/auth/register").session(session).header("X-CSRF-TOKEN", token).contentType("application/json")
+                .content("{\"email\":\"matching-test@example.com\",\"password\":\"password123\",\"displayName\":\"Matching\"}"))
+                .andExpect(status().isCreated());
+        jdbc.update("UPDATE users SET role = 'ADMIN' WHERE email_normalized = ?", "matching-test@example.com");
+        mvc.perform(post("/auth/sessions").session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(credentials)).andExpect(status().isOk());
+        token = JsonPath.read(mvc.perform(get("/auth/csrf").session(session)).andReturn().getResponse().getContentAsString(), "$.token");
+        jdbc.update("INSERT INTO passages (title, body, part_number, status, created_by_user_id) VALUES (?, ?, ?, ?, (SELECT user_id FROM users WHERE email_normalized = ?))", "Matching test", "text", 1, "DRAFT", "matching-test@example.com");
+        long passageId = jdbc.queryForObject("SELECT passage_id FROM passages WHERE title = ?", Long.class, "Matching test");
+        String url = "/api/admin/passages/" + passageId + "/question-groups";
+        String template = """
+                {"taskVariant":"%s","instructions":"Match","candidateReuse":%s,
+                 "candidates":[{"label":"A","text":"First"},{"label":"B","text":"Second"}],
+                 "questions":[{"questionText":"One","answer":"A"},{"questionText":"Two","answer":"%s"}]}
+                """;
+        for (String variant : java.util.List.of("MATCHING_INFORMATION", "MATCHING_HEADINGS", "MATCHING_FEATURES", "MATCHING_SENTENCE_ENDINGS")) {
+            mvc.perform(post(url).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(template.formatted(variant, false, "B"))).andExpect(status().isCreated());
+        }
+        mvc.perform(post(url).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(template.formatted("MATCHING_HEADINGS", true, "A"))).andExpect(status().isBadRequest());
+        mvc.perform(post(url).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(template.formatted("MATCHING_FEATURES", false, "A"))).andExpect(status().isBadRequest());
+        mvc.perform(post(url).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(template.formatted("MATCHING_FEATURES", true, "A"))).andExpect(status().isCreated());
+        mvc.perform(get(url).session(session)).andExpect(status().isOk()).andExpect(jsonPath("$[0].candidates[0].label").value("A"))
+                .andExpect(jsonPath("$[0].questions[0].answer").value("A")).andExpect(jsonPath("$[4].candidateReuse").value(true));
+        long groupId = jdbc.queryForObject("SELECT MIN(question_group_id) FROM question_groups WHERE passage_id = ?", Long.class, passageId);
+        long candidateId = jdbc.queryForObject("SELECT matching_question_id FROM matching_questions WHERE question_group_id = ? AND answer_label = 'A'", Long.class, groupId);
+        long questionId = jdbc.queryForObject("SELECT passage_question_id FROM passage_questions WHERE question_group_id = ? AND question_number = 1", Long.class, groupId);
+        String update = """
+                {"taskVariant":"MATCHING_INFORMATION","instructions":"Edited","candidateReuse":false,
+                 "candidates":[{"id":%d,"label":"A","text":"Edited candidate"}],
+                 "questions":[{"id":%d,"questionText":"One","answer":"A"}]}
+                """.formatted(candidateId, questionId);
+        mvc.perform(put(url + "/" + groupId).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(update)).andExpect(status().isNoContent());
+        assertEquals(candidateId, jdbc.queryForObject("SELECT matching_question_id FROM matching_question_answers WHERE passage_question_id = ?", Long.class, questionId));
+        assertEquals(9, jdbc.queryForObject("SELECT count(*) FROM passage_questions q JOIN question_groups g ON g.question_group_id = q.question_group_id WHERE g.passage_id = ?", Integer.class, passageId));
+        mvc.perform(put(url + "/" + groupId).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(update.replace("\"label\":\"A\"", "\"label\":\"C\"").replace("\"answer\":\"A\"", "\"answer\":\"C\""))).andExpect(status().isBadRequest());
+        mvc.perform(delete(url + "/" + groupId).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isNoContent());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM matching_questions WHERE question_group_id = ?", Integer.class, groupId));
+        assertEquals(1, jdbc.queryForObject("SELECT MIN(q.question_number) FROM passage_questions q JOIN question_groups g ON g.question_group_id = q.question_group_id WHERE g.passage_id = ?", Integer.class, passageId));
+        String blankForResult = "{\"taskVariant\":\"SENTENCE_COMPLETION\",\"wordLimitMode\":\"TWO_WORDS\",\"questions\":[{\"questionText\":\"A place\",\"blankText\":\".\",\"answer\":\"New York\",\"alternatives\":[\"city\"]}]}";
+        mvc.perform(post(url).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content(blankForResult)).andExpect(status().isCreated());
+        mvc.perform(post("/api/admin/passages/" + passageId + "/publish").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk());
+        var attempt = mvc.perform(post("/api/reading/passages/" + passageId + "/attempts").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk()).andReturn();
+        int attemptId = JsonPath.read(attempt.getResponse().getContentAsString(), "$.id");
+        long matchingQuestion = jdbc.queryForObject("SELECT q.passage_question_id FROM passage_questions q JOIN question_groups g ON g.question_group_id = q.question_group_id WHERE g.passage_id = ? AND q.question_number = 1", Long.class, passageId);
+        String answerUrl = "/api/reading/attempts/" + attemptId + "/answers/" + matchingQuestion;
+        mvc.perform(put(answerUrl).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"B\"}")).andExpect(status().isNoContent());
+        mvc.perform(put(answerUrl).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"Z\"}")).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/reading/attempts/" + attemptId).session(session)).andExpect(jsonPath("$.answers[0].value").value("B"));
+        long blankId = jdbc.queryForObject("SELECT q.passage_question_id FROM passage_questions q JOIN question_groups g ON g.question_group_id = q.question_group_id WHERE g.passage_id = ? AND g.task_variant = 'SENTENCE_COMPLETION'", Long.class, passageId);
+        mvc.perform(put("/api/reading/attempts/" + attemptId + "/answers/" + blankId).session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{\"value\":\"  CiTy  \"}")).andExpect(status().isNoContent());
+        mvc.perform(post("/api/reading/attempts/" + attemptId + "/submit").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isOk());
+        mvc.perform(get("/api/reading/attempts/" + attemptId + "/result").session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.correct").value(1)).andExpect(jsonPath("$.incorrect").value(1))
+                .andExpect(jsonPath("$.breakdown[1].family").value("MATCHING"))
+                .andExpect(jsonPath("$.groups[0].questions[0].status").value("INCORRECT"))
+                .andExpect(jsonPath("$.groups[4].questions[0].status").value("CORRECT"))
+                .andExpect(jsonPath("$.groups[4].questions[0].submittedAnswer").value("  CiTy  "));
+    }
+
+    @Test
     void adminEndpointRequiresAdminRole() throws Exception {
         mvc.perform(get("/api/admin/status")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/admin/passages")).andExpect(status().isUnauthorized());

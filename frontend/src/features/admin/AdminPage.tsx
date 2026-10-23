@@ -6,6 +6,7 @@ import { QuestionGroups } from "./QuestionGroups";
 
 type Passage = { id: number; title: string; partNumber: number; status: string };
 type PassageDetail = Passage & { body: string };
+type PublicationCheck = { ready: boolean; issues: string[] };
 
 export function AdminPage() {
   const [passages, setPassages] = useState<Passage[]>([]);
@@ -20,6 +21,7 @@ export function AdminPage() {
   const [editing, setEditing] = useState<PassageDetail | null>(null);
   const [opening, setOpening] = useState(false);
   const [questionsDirty, setQuestionsDirty] = useState(false);
+  const [publicationCheck, setPublicationCheck] = useState<PublicationCheck | null>(null);
   const dirty = questionsDirty || (editing !== null && (title !== editing.title || body !== editing.body || partNumber !== editing.partNumber));
   const blocker = useBlocker(dirty);
   useEffect(() => {
@@ -53,14 +55,38 @@ export function AdminPage() {
       const response = await api(`/api/admin/passages/${id}`);
       if (!response.ok) throw new Error();
       const detail = await response.json() as PassageDetail;
-      setEditing(detail); setTitle(detail.title); setBody(detail.body); setPartNumber(detail.partNumber);
+      setEditing(detail); setTitle(detail.title); setBody(detail.body); setPartNumber(detail.partNumber); setPublicationCheck(null);
     } catch { setError("Không thể mở passage. Vui lòng thử lại."); }
     finally { setOpening(false); }
   }
 
   function closeForm() {
     if (dirty && !window.confirm("Bạn có thay đổi chưa lưu. Bạn có muốn quay lại?")) return;
-    setEditing(null); setCreating(false); setTitle(""); setBody(""); setPartNumber(1); setError(""); setQuestionsDirty(false);
+    setEditing(null); setCreating(false); setTitle(""); setBody(""); setPartNumber(1); setError(""); setQuestionsDirty(false); setPublicationCheck(null);
+  }
+
+  async function checkPublication() {
+    if (!editing || dirty) { setError("Hãy lưu hoặc hủy các thay đổi trước khi kiểm tra xuất bản."); return; }
+    setBusy(true); setError(""); setPublicationCheck(null);
+    try {
+      const response = await api(`/api/admin/passages/${editing.id}/publish-check`);
+      if (!response.ok) { setError(response.status === 409 ? "Passage không còn ở trạng thái nháp. Hãy mở lại passage." : "Không thể kiểm tra passage. Vui lòng thử lại."); return; }
+      setPublicationCheck(await response.json() as PublicationCheck);
+    } catch { setError("Không thể kết nối tới máy chủ. Vui lòng thử lại."); }
+    finally { setBusy(false); }
+  }
+
+  async function publish() {
+    if (!editing || dirty) { setError("Hãy lưu hoặc hủy các thay đổi trước khi xuất bản."); return; }
+    if (!window.confirm("Xuất bản passage này? Sau khi xuất bản, bạn không thể chỉnh sửa trực tiếp.")) return;
+    setBusy(true); setError("");
+    try {
+      const response = await api(`/api/admin/passages/${editing.id}/publish`, "POST");
+      if (response.status === 422) { setPublicationCheck(await response.json() as PublicationCheck); return; }
+      if (!response.ok) { setError(response.status === 409 ? "Passage không còn ở trạng thái nháp. Hãy mở lại passage." : "Không thể xuất bản passage. Vui lòng thử lại."); return; }
+      setEditing({ ...editing, status: "PUBLISHED" }); setPublicationCheck(null); setNotice("Đã xuất bản passage. Giao diện làm bài cho học viên sẽ được xây dựng ở bước tiếp theo."); await load();
+    } catch { setError("Không thể kết nối tới máy chủ. Hãy mở lại passage để kiểm tra trạng thái trước khi thử lại."); }
+    finally { setBusy(false); }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -102,6 +128,7 @@ export function AdminPage() {
           <div className={styles.actions}>{(!editing || editing.status === "DRAFT") && <button className={styles.primary} disabled={busy}>{busy ? "Đang lưu..." : editing ? "Lưu thay đổi" : "Lưu bản nháp"}</button>}<button type="button" className={styles.secondary} disabled={busy} onClick={closeForm}>{editing ? "Quay lại danh sách" : "Hủy"}</button></div>
         </form>
         {editing && <QuestionGroups passageId={editing.id} canCreate={editing.status === "DRAFT"} onDirtyChange={setQuestionsDirty} />}
+        {editing?.status === "DRAFT" && <section className={styles.publish} aria-labelledby="publish-title"><h2 id="publish-title">Kiểm tra và xuất bản</h2><p className={styles.help}>Lưu các thay đổi trước khi kiểm tra. Passage cần có ít nhất một nhóm câu hỏi hợp lệ. Sau khi xuất bản, nội dung không thể chỉnh sửa trực tiếp.</p><div className={styles.actions}><button type="button" className={styles.secondary} disabled={busy} onClick={() => void checkPublication()}>Kiểm tra passage</button>{publicationCheck?.ready && <button type="button" className={styles.primary} disabled={busy || dirty} onClick={() => void publish()}>Xuất bản passage</button>}</div>{publicationCheck && (publicationCheck.ready ? <p className={styles.notice} role="status">Passage đã sẵn sàng xuất bản. Hệ thống sẽ kiểm tra lại khi bạn xuất bản.</p> : <div className={styles.error} role="alert"><strong>Cần hoàn thiện trước khi xuất bản:</strong><ul>{publicationCheck.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul></div>)}</section>}
       </section> : <section className={styles.panel} aria-labelledby="passage-list"><div className={styles.sectionHead}><h2 id="passage-list">Danh sách passage</h2><span>{passages.length} bài</span></div>
         {loading ? <p className={styles.empty}>Đang tải danh sách...</p> : passages.length === 0 ? <p className={styles.empty}>Chưa có passage nào. Chọn “Tạo passage” để bắt đầu.</p> : <div className={styles.tableWrap}><table><thead><tr><th>Tên passage</th><th>Phần</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{passages.map(p => <tr key={p.id}><td>{p.title}</td><td>Passage {p.partNumber}</td><td><span className={styles.badge}>{p.status === "DRAFT" ? "Bản nháp" : p.status === "PUBLISHED" ? "Đã xuất bản" : "Đã lưu trữ"}</span></td><td><button type="button" className={styles.open} disabled={opening} onClick={() => void openPassage(p.id)}>{p.status === "DRAFT" ? "Xem / Chỉnh sửa" : "Xem"}</button></td></tr>)}</tbody></table></div>}
       </section>}

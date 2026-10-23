@@ -2,6 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import styles from "./features/auth/Auth.module.css";
 import { AdminPage } from "./features/admin/AdminPage";
+import { ReadingLibrary, ReadingPassage } from "./features/reading/ReadingPage";
+import { ReadingResult } from "./features/reading/ReadingResult";
+import { ReadingHistory } from "./features/reading/ReadingHistory";
 import { api } from "./api";
 
 type User = { id: number; email: string; displayName: string; role: string };
@@ -90,8 +93,12 @@ function App() {
   return <Routes>
     <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage key="login" register={false} onSignedIn={setUser} />} />
     <Route path="/register" element={user ? <Navigate to="/" replace /> : <AuthPage key="register" register onSignedIn={setUser} />} />
-    <Route path="/" element={user ? <main className={styles.status}><h1>Xin chào, {user.displayName}</h1><p>Bạn đã đăng nhập. Các chức năng luyện tập sẽ được bổ sung trong các phase tiếp theo.</p>{user.role === "ADMIN" && <p><Link to="/admin">Vào khu vực quản trị</Link></p>}<button className={styles.primary} onClick={async () => { try { const r = await api("/auth/sessions/current", "DELETE"); if (r.ok || r.status === 401) setUser(null); else setNetworkError(true); } catch { setNetworkError(true); } }}>Đăng xuất</button></main> : <Navigate to="/login" replace />} />
+    <Route path="/" element={user ? <main className={styles.status}><h1>Xin chào, {user.displayName}</h1><p>Chọn bài đọc để xem nội dung và câu hỏi.</p><p><Link to="/reading">Xem các passage</Link></p>{user.role === "ADMIN" && <p><Link to="/admin">Vào khu vực quản trị</Link></p>}<button className={styles.primary} onClick={async () => { try { const r = await api("/auth/sessions/current", "DELETE"); if (r.ok || r.status === 401) setUser(null); else setNetworkError(true); } catch { setNetworkError(true); } }}>Đăng xuất</button></main> : <Navigate to="/login" replace />} />
     <Route path="/admin" element={!user ? <Navigate to="/login" replace /> : user.role === "ADMIN" ? <AdminPage /> : <Navigate to="/" replace />} />
+    <Route path="/reading" element={user ? <ReadingLibrary /> : <Navigate to="/login" replace />} />
+    <Route path="/reading/history" element={user ? <ReadingHistory /> : <Navigate to="/login" replace />} />
+    <Route path="/reading/passages/:id" element={user ? <ReadingPassage /> : <Navigate to="/login" replace />} />
+    <Route path="/reading/attempts/:id/result" element={user ? <ReadingResult /> : <Navigate to="/login" replace />} />
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes>;
 }
