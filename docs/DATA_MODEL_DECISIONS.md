@@ -354,6 +354,10 @@ Status: Confirmed
 
 Each blank question has one canonical answer; scoring normalizes Unicode/case/whitespace and retains the learner's raw value. Multiple acceptable answer variants are outside the launch MVP. The author records any IELTS word-limit instruction in the shared group instructions; the first release does not derive or enforce a second hidden word-limit rule.
 
+Update, 2026-10-23: the project owner approved replacing the one-answer policy with a primary answer plus optional, explicitly authored alternatives. Normalization is Unicode NFC, case-insensitive and whitespace-collapsed; the service rejects equivalent duplicates. Sentence Completion groups store a selected word-limit mode and derive the displayed instruction from that mode. The later learner-scoring implementation must enforce the chosen limit and compare against all accepted answers; authoring alone does not implement scoring. Existing OPTION data is unchanged. Admin evidence is ordinary explanation text for MVP; linked passage anchors remain future work and are distinct from learner highlights.
+
+Word-limit authoring validation: ONE_WORD accepts at most one word and no digit-number; TWO_WORDS accepts at most two words and no digit-number; TWO_WORDS_AND_ONE_NUMBER accepts at most two words and at most one digit-number. A hyphenated alphabetic token counts as one word; digit-only integers count as numbers, while number words such as "three" count as words. Decimal numbers, dates, currency symbols and other unclassified formats are rejected as unsupported, not graded as incorrect. The same policy must be evaluated again before learner grading, especially for unsupported legitimate IELTS answers.
+
 ## DM-025 — Personal passage annotations
 
 Status: Confirmed

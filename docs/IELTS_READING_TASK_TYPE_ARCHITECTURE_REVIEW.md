@@ -6,6 +6,8 @@ Scope: Map official IELTS Academic Reading task types to the approved three-fami
 
 ## Evidence reviewed
 
+Implementation update (2026-10-23): the approved Sentence Completion policy now allows explicitly authored answer alternatives and stores a selected word-limit mode. The earlier one-answer and instruction-only statements below describe the superseded launch decision, not the current Sentence Completion design. Enforcement during learner scoring remains future work.
+
 The official IELTS Academic format specifies three sections, 40 questions, and 60 minutes. It lists multiple choice; True/False/Not Given; Yes/No/Not Given; matching information, headings, features, and sentence endings; sentence completion; summary/note/table/flow-chart completion; diagram label completion; and short answer questions. It also states that multiple choice can require more than one answer, matching rules can permit reuse only when stated, and text-entry tasks enforce an instruction-level word limit.
 
 Sources consulted 2026-10-16:

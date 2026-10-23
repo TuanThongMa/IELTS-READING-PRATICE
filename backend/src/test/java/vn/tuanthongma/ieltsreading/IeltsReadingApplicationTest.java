@@ -57,6 +57,8 @@ class IeltsReadingApplicationTest {
                 .contentType("application/json").content("{}")).andExpect(status().isForbidden());
         mvc.perform(put("/api/admin/passages/1/question-groups/1").session(session).header("X-CSRF-TOKEN", token)
                 .contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        mvc.perform(delete("/api/admin/passages/1/question-groups/1").session(session).header("X-CSRF-TOKEN", token))
+                .andExpect(status().isForbidden());
         mvc.perform(post("/api/admin/passages").session(session).header("X-CSRF-TOKEN", token)
                 .contentType("application/json").content("{\"title\":\"No\",\"body\":\"No\",\"partNumber\":1}"))
                 .andExpect(status().isForbidden());
@@ -144,9 +146,38 @@ class IeltsReadingApplicationTest {
                 .andExpect(jsonPath("$[0].questions[1].answer").value("FALSE"));
         mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
                 .contentType("application/json").content("""
-                        {"instructions":"Another group","questions":[{"questionText":"Other","answer":"TRUE"}]}
+                        {"taskVariant":"YES_NO_NOT_GIVEN","instructions":"Another group","questions":[{"questionText":"Other","answer":"YES"}]}
                         """)).andExpect(status().isCreated());
-        mvc.perform(get(groupsUrl).session(session)).andExpect(jsonPath("$[1].questions[0].questionNumber").value(3));
+        mvc.perform(get(groupsUrl).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[1].taskVariant").value("YES_NO_NOT_GIVEN"))
+                .andExpect(jsonPath("$[1].questions[0].answer").value("YES"))
+                .andExpect(jsonPath("$[1].questions[0].questionNumber").value(3));
+        mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content("""
+                        {"taskVariant":"YES_NO_NOT_GIVEN","instructions":"Invalid","questions":[{"questionText":"Other","answer":"TRUE"}]}
+                        """)).andExpect(status().isBadRequest());
+        mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content("""
+                        {"taskVariant":"TRUE_FALSE_NOT_GIVEN","instructions":"Invalid","questions":[{"questionText":"Other","answer":"YES"}]}
+                        """)).andExpect(status().isBadRequest());
+        mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content("""
+                        {"taskVariant":"UNKNOWN","instructions":"Invalid","questions":[{"questionText":"Other","answer":"YES"}]}
+                        """)).andExpect(status().isBadRequest());
+        long yesGroupId = jdbc.queryForObject("SELECT question_group_id FROM question_groups WHERE passage_id = ? AND task_variant = 'YES_NO_NOT_GIVEN'", Long.class, id);
+        long yesQuestionId = jdbc.queryForObject("SELECT passage_question_id FROM passage_questions WHERE question_group_id = ?", Long.class, yesGroupId);
+        String yesEditUrl = groupsUrl + "/" + yesGroupId;
+        String yesEdit = """
+                {"taskVariant":"YES_NO_NOT_GIVEN","instructions":"Edited","questions":[{"id":%d,"questionText":"Other","answer":"NO"}]}
+                """.formatted(yesQuestionId);
+        mvc.perform(put(yesEditUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(yesEdit)).andExpect(status().isNoContent());
+        mvc.perform(put(yesEditUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(yesEdit.replace("YES_NO_NOT_GIVEN", "TRUE_FALSE_NOT_GIVEN")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get(groupsUrl).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[1].taskVariant").value("YES_NO_NOT_GIVEN"))
+                .andExpect(jsonPath("$[1].questions[0].answer").value("NO"));
         String editedWithRemoval = """
                 {"instructions":"Updated instructions","questions":[
                 {"id":%d,"questionText":"Updated first","answer":"FALSE"}]}
@@ -164,7 +195,102 @@ class IeltsReadingApplicationTest {
         assertEquals("Updated instructions", jdbc.queryForObject("SELECT instructions FROM question_groups WHERE question_group_id = ?", String.class, groupId));
         mvc.perform(put(groupsUrl + "/99999").session(session).header("X-CSRF-TOKEN", token)
                 .contentType("application/json").content(editedWithRemoval)).andExpect(status().isNotFound());
+        String mc = """
+                {"taskVariant":"MULTIPLE_CHOICE_SINGLE","instructions":"Choose one","questions":[
+                {"questionText":"Which?","answer":"B","options":["First","Second","Third"]}]}
+                """;
+        mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(mc)).andExpect(status().isCreated());
+        mvc.perform(get(groupsUrl).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[2].questions[0].questionNumber").value(3))
+                .andExpect(jsonPath("$[2].questions[0].answer").value("B"))
+                .andExpect(jsonPath("$[2].questions[0].options[1]").value("Second"));
+        for (String bad : new String[]{mc.replace("[\"First\",\"Second\",\"Third\"]", "[\"First\"]"),
+                mc.replace("Second", " "), mc.replace("\"B\"", "\"D\"")}) {
+            mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                    .contentType("application/json").content(bad)).andExpect(status().isBadRequest());
+        }
+        long mcGroupId = jdbc.queryForObject("SELECT question_group_id FROM question_groups WHERE passage_id = ? AND task_variant = 'MULTIPLE_CHOICE_SINGLE'", Long.class, id);
+        long mcQuestionId = jdbc.queryForObject("SELECT passage_question_id FROM passage_questions WHERE question_group_id = ?", Long.class, mcGroupId);
+        String mcEdit = """
+                {"taskVariant":"MULTIPLE_CHOICE_SINGLE","instructions":"Choose one","questions":[
+                {"id":%d,"questionText":"Edited?","answer":"A","options":["New first","New second"]}]}
+                """.formatted(mcQuestionId);
+        mvc.perform(put(groupsUrl + "/" + mcGroupId).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(mcEdit)).andExpect(status().isNoContent());
+        mvc.perform(get(groupsUrl).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[2].questions[0].answer").value("A"))
+                .andExpect(jsonPath("$[2].questions[0].options.length()").value(2))
+                .andExpect(jsonPath("$[2].questions[0].options[0]").value("New first"));
+        assertEquals(8, jdbc.queryForObject("SELECT count(*) FROM option_questions", Integer.class));
+        String blank = """
+                {"taskVariant":"SENTENCE_COMPLETION","wordLimitMode":"ONE_WORD","questions":[
+                {"questionText":"The colour is","blankText":".","answer":"colour","alternatives":["color"],"explanation":"In the passage"}]}
+                """;
+        mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(blank)).andExpect(status().isCreated());
+        mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(blank.replace("[\"color\"]", "[\" COLOUR \" ]"))).andExpect(status().isBadRequest());
+        mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(blank.replace("ONE_WORD", "INVALID"))).andExpect(status().isBadRequest());
+        long blankGroupId = jdbc.queryForObject("SELECT question_group_id FROM question_groups WHERE passage_id = ? AND task_variant = 'SENTENCE_COMPLETION'", Long.class, id);
+        long blankQuestionId = jdbc.queryForObject("SELECT passage_question_id FROM passage_questions WHERE question_group_id = ?", Long.class, blankGroupId);
+        mvc.perform(get(groupsUrl).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[3].questions[0].questionNumber").value(4))
+                .andExpect(jsonPath("$[3].questions[0].blankText").value("."))
+                .andExpect(jsonPath("$[3].questions[0].alternatives[0]").value("color"))
+                .andExpect(jsonPath("$[3].instructions").value("ONE WORD ONLY"));
+        String blankEdit = """
+                {"taskVariant":"SENTENCE_COMPLETION","wordLimitMode":"TWO_WORDS","questions":[
+                {"id":%d,"questionText":"It is","blankText":"outside.","answer":"bright red","alternatives":["red"],"explanation":"Evidence"}]}
+                """.formatted(blankQuestionId);
+        mvc.perform(put(groupsUrl + "/" + blankGroupId).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(blankEdit)).andExpect(status().isNoContent());
+        mvc.perform(put(groupsUrl + "/" + blankGroupId).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(blankEdit.replace("TWO_WORDS", "ONE_WORD")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("đáp án chính")));
+        mvc.perform(get(groupsUrl).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[3].wordLimitMode").value("TWO_WORDS"))
+                .andExpect(jsonPath("$[3].questions[0].answer").value("bright red"))
+                .andExpect(jsonPath("$[3].questions[0].alternatives[0]").value("red"));
+        mvc.perform(delete(yesEditUrl).session(session)).andExpect(status().isForbidden());
+        mvc.perform(delete(groupsUrl + "/99999").session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isNotFound());
+        mvc.perform(delete(yesEditUrl).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isNoContent());
+        mvc.perform(get(groupsUrl).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].questions[0].questionNumber").value(1))
+                .andExpect(jsonPath("$[1].taskVariant").value("MULTIPLE_CHOICE_SINGLE"))
+                .andExpect(jsonPath("$[1].questions[0].questionNumber").value(2))
+                .andExpect(jsonPath("$[2].questions[0].questionNumber").value(3));
+        assertEquals(5, jdbc.queryForObject("SELECT count(*) FROM option_questions", Integer.class));
+        mvc.perform(delete(groupsUrl + "/" + mcGroupId).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isNoContent());
+        mvc.perform(get(groupsUrl).session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[1].questions[0].questionNumber").value(2));
+        mvc.perform(delete(groupsUrl + "/" + blankGroupId).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isNoContent());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM blank_questions", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM blank_answer_variants", Integer.class));
+        String[] modes = {"ONE_WORD", "ONE_WORD", "ONE_WORD", "TWO_WORDS", "TWO_WORDS", "TWO_WORDS_AND_ONE_NUMBER", "TWO_WORDS_AND_ONE_NUMBER", "TWO_WORDS_AND_ONE_NUMBER", "TWO_WORDS_AND_ONE_NUMBER", "TWO_WORDS_AND_ONE_NUMBER"};
+        String[] values = {"check-in", "New York", "3", "public library", "3 libraries", "3", "3 old books", "3 very old books", "3 4 books", "3.5"};
+        boolean[] valid = {true, false, false, true, false, true, true, false, false, false};
+        for (int i = 0; i < modes.length; i++) {
+            String candidate = """
+                    {"taskVariant":"SENTENCE_COMPLETION","wordLimitMode":"%s","questions":[
+                    {"questionText":"Example","blankText":".","answer":"%s","alternatives":[]}]}
+                    """.formatted(modes[i], values[i]);
+            var request = mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                    .contentType("application/json").content(candidate));
+            if (valid[i]) {
+                request.andExpect(status().isCreated());
+                long createdGroup = jdbc.queryForObject("SELECT question_group_id FROM question_groups WHERE passage_id = ? AND task_variant = 'SENTENCE_COMPLETION'", Long.class, id);
+                mvc.perform(delete(groupsUrl + "/" + createdGroup).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isNoContent());
+            } else request.andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").exists());
+        }
+        String invalidAlternative = blank.replace("[\"color\"]", "[\"two words\"]");
+        mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
+                .contentType("application/json").content(invalidAlternative)).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("đáp án thay thế 1")));
+        assertEquals(3, jdbc.queryForObject("SELECT count(*) FROM option_questions", Integer.class));
         jdbc.update("UPDATE passages SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP WHERE passage_id = ?", id);
+        mvc.perform(delete(editUrl).session(session).header("X-CSRF-TOKEN", token)).andExpect(status().isConflict());
         mvc.perform(post(groupsUrl).session(session).header("X-CSRF-TOKEN", token)
                 .contentType("application/json").content(group)).andExpect(status().isConflict());
         mvc.perform(put(editUrl).session(session).header("X-CSRF-TOKEN", token)

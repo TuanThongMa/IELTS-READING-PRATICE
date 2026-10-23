@@ -6,7 +6,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Locale;
+import java.text.Normalizer;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,38 +19,70 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/admin/passages/{passageId}/question-groups")
 class AdminQuestionGroupController {
-    private static final List<String> ANSWERS = List.of("TRUE", "FALSE", "NOT GIVEN");
+    private static final Map<String, List<String>> ANSWERS = Map.of(
+            "TRUE_FALSE_NOT_GIVEN", List.of("TRUE", "FALSE", "NOT GIVEN"),
+            "YES_NO_NOT_GIVEN", List.of("YES", "NO", "NOT GIVEN"));
     private final JdbcTemplate jdbc;
 
     AdminQuestionGroupController(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    record QuestionInput(Long id, String questionText, String answer, String explanation) {}
-    record GroupInput(String instructions, List<QuestionInput> questions) {}
-    record QuestionView(long id, int questionNumber, String questionText, String answer, String explanation) {}
-    record GroupView(long id, String taskVariant, String instructions, List<QuestionView> questions) {}
+    record QuestionInput(Long id, String questionText, String answer, String explanation, List<String> options, String blankText, List<String> alternatives) {}
+    record GroupInput(String taskVariant, String instructions, List<QuestionInput> questions, String wordLimitMode) {}
+    record QuestionView(long id, int questionNumber, String questionText, String answer, String explanation, List<String> options, String blankText, List<String> alternatives) {}
+    record GroupView(long id, String taskVariant, String instructions, List<QuestionView> questions, String wordLimitMode) {}
+    private static final Map<String, String> WORD_LIMITS = Map.of(
+            "ONE_WORD", "ONE WORD ONLY", "TWO_WORDS", "NO MORE THAN TWO WORDS",
+            "TWO_WORDS_AND_ONE_NUMBER", "NO MORE THAN TWO WORDS AND/OR A NUMBER");
+
+    private static class InvalidBlankAnswer extends RuntimeException {
+        InvalidBlankAnswer(String message) { super(message); }
+    }
+
+    @ExceptionHandler(InvalidBlankAnswer.class)
+    ResponseEntity<Map<String, String>> invalidBlankAnswer(InvalidBlankAnswer error) {
+        return ResponseEntity.badRequest().body(Map.of("message", error.getMessage()));
+    }
 
     @GetMapping
     List<GroupView> list(@PathVariable long passageId) {
         requirePassage(passageId, false);
         Map<Long, GroupView> groups = new LinkedHashMap<>();
+        Map<Long, List<String>> choices = new LinkedHashMap<>();
+        Map<Long, List<String>> alternatives = new LinkedHashMap<>();
         jdbc.query("""
-                SELECT g.question_group_id, g.task_variant, g.instructions, q.passage_question_id, q.question_number,
-                       q.question_text, q.explanation, o.answer_label
+                SELECT b.passage_question_id, a.answer_text FROM blank_questions b
+                JOIN passage_questions q ON q.passage_question_id = b.passage_question_id
+                JOIN question_groups g ON g.question_group_id = q.question_group_id
+                JOIN blank_answer_variants a ON a.blank_question_id = b.blank_question_id
+                WHERE g.passage_id = ? ORDER BY a.blank_answer_variant_id
+                """, rs -> { alternatives.computeIfAbsent(rs.getLong("passage_question_id"), ignored -> new ArrayList<>()).add(rs.getString("answer_text")); }, passageId);
+        jdbc.query("""
+                SELECT q.passage_question_id, o.option_text FROM passage_questions q
+                JOIN question_groups g ON g.question_group_id = q.question_group_id
+                JOIN question_answer_options a ON a.passage_question_id = q.passage_question_id
+                JOIN option_questions o ON o.option_question_id = a.option_question_id
+                WHERE g.passage_id = ? AND g.task_variant = 'MULTIPLE_CHOICE_SINGLE'
+                ORDER BY q.passage_question_id, a.display_order
+                """, rs -> { choices.computeIfAbsent(rs.getLong("passage_question_id"), ignored -> new ArrayList<>()).add(rs.getString("option_text")); }, passageId);
+        jdbc.query("""
+                SELECT g.question_group_id, g.task_variant, g.instructions, g.word_limit_mode, q.passage_question_id, q.question_number,
+                       q.question_text, q.explanation, o.answer_label, b.answer_blank, b.blank_text
                 FROM question_groups g
                 JOIN passage_questions q ON q.question_group_id = g.question_group_id
-                JOIN question_answer_options a ON a.passage_question_id = q.passage_question_id AND a.is_correct = true
-                JOIN option_questions o ON o.option_question_id = a.option_question_id
-                WHERE g.passage_id = ? AND g.task_variant = 'TRUE_FALSE_NOT_GIVEN'
+                LEFT JOIN question_answer_options a ON a.passage_question_id = q.passage_question_id AND a.is_correct = true
+                LEFT JOIN option_questions o ON o.option_question_id = a.option_question_id
+                LEFT JOIN blank_questions b ON b.passage_question_id = q.passage_question_id
+                WHERE g.passage_id = ? AND g.task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION')
                 ORDER BY g.display_order, q.question_number
                 """, rs -> {
             long groupId = rs.getLong("question_group_id");
             GroupView group = groups.get(groupId);
             if (group == null) {
-                group = new GroupView(groupId, rs.getString("task_variant"), rs.getString("instructions"), new ArrayList<>());
+                group = new GroupView(groupId, rs.getString("task_variant"), rs.getString("instructions"), new ArrayList<>(), rs.getString("word_limit_mode"));
                 groups.put(groupId, group);
             }
             group.questions().add(new QuestionView(rs.getLong("passage_question_id"), rs.getInt("question_number"), rs.getString("question_text"),
-                    rs.getString("answer_label"), rs.getString("explanation")));
+                    "SENTENCE_COMPLETION".equals(group.taskVariant()) ? rs.getString("answer_blank") : rs.getString("answer_label"), rs.getString("explanation"), choices.getOrDefault(rs.getLong("passage_question_id"), List.of()), rs.getString("blank_text"), alternatives.getOrDefault(rs.getLong("passage_question_id"), List.of())));
         }, passageId);
         return List.copyOf(groups.values());
     }
@@ -56,7 +91,8 @@ class AdminQuestionGroupController {
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     void create(@PathVariable long passageId, @RequestBody GroupInput input) {
-        validate(input);
+        String variant = input.taskVariant() == null ? "TRUE_FALSE_NOT_GIVEN" : input.taskVariant();
+        validate(input, variant);
         if (input.questions().stream().anyMatch(q -> q.id() != null))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Câu hỏi mới không được có id.");
         String status = requirePassage(passageId, true);
@@ -64,11 +100,12 @@ class AdminQuestionGroupController {
         checkTotal(passageId, 0, input.questions().size());
         Integer order = jdbc.queryForObject("SELECT COALESCE(MAX(display_order), 0) + 1 FROM question_groups WHERE passage_id = ?", Integer.class, passageId);
         long groupId = insertKey("""
-                INSERT INTO question_groups (passage_id, display_order, question_type, task_variant, answer_input_mode, instructions)
-                VALUES (?, ?, 'OPTION', 'TRUE_FALSE_NOT_GIVEN', 'PER_QUESTION_CHOICE', ?)
-                """, "question_group_id", passageId, order, input.instructions().strip());
+                INSERT INTO question_groups (passage_id, display_order, question_type, task_variant, answer_input_mode, instructions, word_limit_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, "question_group_id", passageId, order, isBlank(variant) ? "BLANK" : "OPTION", variant,
+                isBlank(variant) ? "TEXT_ENTRY" : "PER_QUESTION_CHOICE", instructions(input, variant), isBlank(variant) ? input.wordLimitMode() : null);
         int position = 0;
-        for (QuestionInput question : input.questions()) insertQuestion(groupId, question, 2_000_000 + ++position);
+        for (QuestionInput question : input.questions()) insertQuestion(groupId, question, 2_000_000 + ++position, variant);
         renumber(passageId);
     }
 
@@ -76,11 +113,14 @@ class AdminQuestionGroupController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Transactional
     void update(@PathVariable long passageId, @PathVariable long groupId, @RequestBody GroupInput input) {
-        validate(input);
         if (!"DRAFT".equals(requirePassage(passageId, true)))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Chỉ được sửa câu hỏi của bản nháp.");
-        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM question_groups WHERE question_group_id = ? AND passage_id = ? AND task_variant = 'TRUE_FALSE_NOT_GIVEN'", Integer.class, groupId, passageId);
-        if (count == null || count == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        List<String> variants = jdbc.queryForList("SELECT task_variant FROM question_groups WHERE question_group_id = ? AND passage_id = ? AND task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION')", String.class, groupId, passageId);
+        if (variants.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        String variant = variants.getFirst();
+        if (input.taskVariant() != null && !variant.equals(input.taskVariant()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể đổi dạng nhóm đã lưu.");
+        validate(input, variant);
         checkTotal(passageId, groupId, input.questions().size());
         List<Long> originalIds = jdbc.queryForList("SELECT passage_question_id FROM passage_questions WHERE question_group_id = ?", Long.class, groupId);
         Set<Long> retainedIds = new HashSet<>();
@@ -88,32 +128,56 @@ class AdminQuestionGroupController {
             if (q.id() != null && (!originalIds.contains(q.id()) || !retainedIds.add(q.id())))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Câu hỏi không thuộc nhóm hoặc bị trùng.");
         }
-        jdbc.update("UPDATE question_groups SET instructions = ?, updated_at = CURRENT_TIMESTAMP WHERE question_group_id = ?", input.instructions().strip(), groupId);
+        jdbc.update("UPDATE question_groups SET instructions = ?, word_limit_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE question_group_id = ?", instructions(input, variant), isBlank(variant) ? input.wordLimitMode() : null, groupId);
         // Temporarily move old numbers away from the new group's ordered positions.
         jdbc.update("UPDATE passage_questions SET question_number = question_number + 3000000 WHERE question_group_id = ?", groupId);
         for (long oldId : originalIds) {
             if (!retainedIds.contains(oldId)) {
-                List<Long> optionIds = jdbc.queryForList("SELECT option_question_id FROM question_answer_options WHERE passage_question_id = ?", Long.class, oldId);
-                jdbc.update("DELETE FROM question_answer_options WHERE passage_question_id = ?", oldId);
+                if (isBlank(variant)) removeBlank(oldId); else removeOptions(oldId);
                 jdbc.update("DELETE FROM passage_questions WHERE passage_question_id = ?", oldId);
-                for (long optionId : optionIds)
-                    jdbc.update("DELETE FROM option_questions WHERE option_question_id = ? AND NOT EXISTS (SELECT 1 FROM question_answer_options WHERE option_question_id = ?)", optionId, optionId);
             }
         }
         int position = 0;
         for (QuestionInput q : input.questions()) {
             int number = 2_000_000 + ++position;
-            if (q.id() == null) insertQuestion(groupId, q, number);
+            if (q.id() == null) insertQuestion(groupId, q, number, variant);
             else {
                 jdbc.update("UPDATE passage_questions SET question_number = ?, question_text = ?, explanation = ?, updated_at = CURRENT_TIMESTAMP WHERE passage_question_id = ?",
                         number, q.questionText().strip(), explanation(q), q.id());
-                jdbc.update("""
+                if (isBlank(variant)) {
+                    removeBlank(q.id());
+                    insertBlank(q.id(), q);
+                } else if ("MULTIPLE_CHOICE_SINGLE".equals(variant)) {
+                    removeOptions(q.id());
+                    insertOptions(q.id(), q, variant);
+                } else jdbc.update("""
                         UPDATE question_answer_options SET is_correct = (option_question_id IN
                           (SELECT option_question_id FROM option_questions WHERE answer_label = ?))
                         WHERE passage_question_id = ?
                         """, q.answer(), q.id());
             }
         }
+        renumber(passageId);
+    }
+
+    @DeleteMapping("/{groupId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
+    void delete(@PathVariable long passageId, @PathVariable long groupId) {
+        if (!"DRAFT".equals(requirePassage(passageId, true)))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Chỉ được xóa nhóm câu hỏi của bản nháp.");
+        Integer found = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM question_groups WHERE question_group_id = ? AND passage_id = ?
+                AND task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION')
+                """, Integer.class, groupId, passageId);
+        if (found == null || found == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        List<Long> questionIds = jdbc.queryForList("SELECT passage_question_id FROM passage_questions WHERE question_group_id = ?", Long.class, groupId);
+        for (long questionId : questionIds) {
+            removeBlank(questionId);
+            removeOptions(questionId);
+            jdbc.update("DELETE FROM passage_questions WHERE passage_question_id = ?", questionId);
+        }
+        jdbc.update("DELETE FROM question_groups WHERE question_group_id = ?", groupId);
         renumber(passageId);
     }
 
@@ -143,16 +207,59 @@ class AdminQuestionGroupController {
         return question.explanation() == null || question.explanation().isBlank() ? null : question.explanation().strip();
     }
 
-    private void insertQuestion(long groupId, QuestionInput question, int number) {
+    private void insertQuestion(long groupId, QuestionInput question, int number, String variant) {
             long questionId = insertKey("""
                     INSERT INTO passage_questions (question_group_id, question_number, question_text, explanation)
                     VALUES (?, ?, ?, ?)
                     """, "passage_question_id", groupId, number, question.questionText().strip(),
                     explanation(question));
-            for (int i = 0; i < ANSWERS.size(); i++) {
-                String answer = ANSWERS.get(i);
+            if (isBlank(variant)) insertBlank(questionId, question); else insertOptions(questionId, question, variant);
+    }
+
+    private boolean isBlank(String variant) { return "SENTENCE_COMPLETION".equals(variant); }
+    private String instructions(GroupInput input, String variant) { return isBlank(variant) ? WORD_LIMITS.get(input.wordLimitMode()) : input.instructions().strip(); }
+    private String normalize(String value) { return Normalizer.normalize(value, Normalizer.Form.NFC).strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT); }
+
+    private void validateBlankLimit(String answer, String mode, String label) {
+        int words = 0;
+        int numbers = 0;
+        for (String token : normalize(answer).split(" ")) {
+            if (token.matches("[0-9]+")) numbers++;
+            else if (token.matches("[\\p{L}\\p{M}]+(?:-[\\p{L}\\p{M}]+)*")) words++;
+            else throw new InvalidBlankAnswer(label + ": định dạng chưa được hỗ trợ. Hiện chỉ hỗ trợ từ, từ nối bằng dấu gạch ngang và số nguyên viết bằng chữ số.");
+        }
+        int maxWords = "ONE_WORD".equals(mode) ? 1 : 2;
+        int maxNumbers = "TWO_WORDS_AND_ONE_NUMBER".equals(mode) ? 1 : 0;
+        if (words > maxWords || numbers > maxNumbers)
+            throw new InvalidBlankAnswer(label + ": vượt giới hạn " + WORD_LIMITS.get(mode) + ".");
+    }
+
+    private void insertBlank(long questionId, QuestionInput question) {
+        long blankId = insertKey("INSERT INTO blank_questions (passage_question_id, blank_text, answer_blank) VALUES (?, ?, ?)",
+                "blank_question_id", questionId, question.blankText().strip(), question.answer().strip());
+        for (String alternative : question.alternatives())
+            jdbc.update("INSERT INTO blank_answer_variants (blank_question_id, answer_text, answer_normalized) VALUES (?, ?, ?)", blankId, alternative.strip(), normalize(alternative));
+    }
+
+    private void removeBlank(long questionId) {
+        jdbc.update("DELETE FROM blank_answer_variants WHERE blank_question_id IN (SELECT blank_question_id FROM blank_questions WHERE passage_question_id = ?)", questionId);
+        jdbc.update("DELETE FROM blank_questions WHERE passage_question_id = ?", questionId);
+    }
+
+    private void removeOptions(long questionId) {
+        List<Long> optionIds = jdbc.queryForList("SELECT option_question_id FROM question_answer_options WHERE passage_question_id = ?", Long.class, questionId);
+        jdbc.update("DELETE FROM question_answer_options WHERE passage_question_id = ?", questionId);
+        for (long optionId : optionIds)
+            jdbc.update("DELETE FROM option_questions WHERE option_question_id = ? AND NOT EXISTS (SELECT 1 FROM question_answer_options WHERE option_question_id = ?)", optionId, optionId);
+    }
+
+    private void insertOptions(long questionId, QuestionInput question, String variant) {
+            boolean multipleChoice = "MULTIPLE_CHOICE_SINGLE".equals(variant);
+            List<String> options = multipleChoice ? question.options() : ANSWERS.get(variant);
+            for (int i = 0; i < options.size(); i++) {
+                String answer = multipleChoice ? String.valueOf((char) ('A' + i)) : options.get(i);
                 long optionId = insertKey("INSERT INTO option_questions (answer_label, option_text) VALUES (?, ?)",
-                        "option_question_id", answer, answer);
+                        "option_question_id", answer, options.get(i).strip());
                 jdbc.update("INSERT INTO question_answer_options (passage_question_id, option_question_id, is_correct, display_order) VALUES (?, ?, ?, ?)",
                         questionId, optionId, answer.equals(question.answer()), i + 1);
             }
@@ -176,14 +283,39 @@ class AdminQuestionGroupController {
         return result.getFirst();
     }
 
-    private void validate(GroupInput input) {
-        if (input.instructions() == null || input.instructions().isBlank() || input.instructions().length() > 10_000
+    private void validate(GroupInput input, String variant) {
+        List<String> allowedAnswers = ANSWERS.get(variant);
+        boolean multipleChoice = "MULTIPLE_CHOICE_SINGLE".equals(variant);
+        boolean blank = isBlank(variant);
+        if (allowedAnswers == null && !multipleChoice && !blank) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dạng câu hỏi không được hỗ trợ.");
+        if ((blank ? input.wordLimitMode() == null || !WORD_LIMITS.containsKey(input.wordLimitMode()) : input.instructions() == null || input.instructions().isBlank() || input.instructions().length() > 10_000)
                 || input.questions() == null || input.questions().isEmpty() || input.questions().size() > 40)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hướng dẫn hoặc danh sách câu hỏi không hợp lệ.");
+        int questionIndex = 0;
         for (QuestionInput q : input.questions()) {
-            if (q == null || q.questionText() == null || q.questionText().isBlank()
-                    || q.questionText().length() > 10_000 || q.answer() == null || !ANSWERS.contains(q.answer())
+            questionIndex++;
+            if (q == null || q.questionText() == null || (!blank && q.questionText().isBlank())
+                    || q.questionText().length() > 10_000 || q.answer() == null
                     || (q.explanation() != null && q.explanation().length() > 10_000))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Câu hỏi hoặc đáp án không hợp lệ.");
+            if (blank) {
+                if (q.blankText() == null || q.blankText().length() > 10_000 || (q.questionText().isBlank() && q.blankText().isBlank())
+                        || q.answer().isBlank() || q.answer().length() > 1000 || q.alternatives() == null || q.alternatives().size() > 20)
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Câu điền từ không hợp lệ.");
+                Set<String> normalized = new HashSet<>();
+                normalized.add(normalize(q.answer()));
+                validateBlankLimit(q.answer(), input.wordLimitMode(), "Câu trong nhóm " + questionIndex + ", đáp án chính");
+                int alternativeIndex = 0;
+                for (String value : q.alternatives())
+                    if (value == null || value.isBlank() || value.length() > 1000 || !normalized.add(normalize(value)))
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đáp án thay thế bị trùng hoặc không hợp lệ.");
+                    else validateBlankLimit(value, input.wordLimitMode(), "Câu trong nhóm " + questionIndex + ", đáp án thay thế " + ++alternativeIndex);
+            } else if (multipleChoice) {
+                if (q.options() == null || q.options().size() < 2 || q.options().size() > 26
+                        || q.options().stream().anyMatch(option -> option == null || option.isBlank() || option.length() > 10_000)
+                        || q.answer().length() != 1 || q.answer().charAt(0) < 'A' || q.answer().charAt(0) >= 'A' + q.options().size())
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Lựa chọn hoặc đáp án đúng không hợp lệ.");
+            } else if (!allowedAnswers.contains(q.answer()))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Câu hỏi hoặc đáp án không hợp lệ.");
         }
     }
