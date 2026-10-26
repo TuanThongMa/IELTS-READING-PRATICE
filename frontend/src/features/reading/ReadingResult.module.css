@@ -13,6 +13,12 @@
 .totals p { display: flex; justify-content: space-between; gap: 24px; margin: 0; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .totals p:last-child { border: 0; }
 .totals span { color: var(--text-secondary); }
+.totals p:first-child strong { color: var(--success); }
+.totals p:nth-child(2) strong { color: var(--danger); }
+.primaryAction { display: inline-flex; align-items: center; border-radius: var(--radius); padding: 12px 20px; background: var(--primary); color: var(--on-primary) !important; font-weight: 600; text-decoration: none; }
+.primaryAction:hover { background: var(--primary-hover); }
+.secondaryAction { color: var(--primary-soft-text); font-weight: 600; text-decoration: none; }
+.secondaryAction:hover { text-decoration: underline; }
 .actions { display: flex; align-items: center; gap: 24px; margin: 24px 0 40px; }
 .actions button { border: 0; border-radius: var(--radius); padding: 12px 20px; background: var(--primary); color: var(--on-primary); font: inherit; font-weight: 600; cursor: pointer; }
 .actions button:hover { background: var(--primary-hover); }

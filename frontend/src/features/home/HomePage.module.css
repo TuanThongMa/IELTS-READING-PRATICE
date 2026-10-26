@@ -1,0 +1,45 @@
+.page { min-height: 100vh; background: var(--bg-page); }
+.header { min-height: 70px; display: flex; align-items: center; gap: 36px; padding: 0 clamp(20px, 5vw, 72px); background: var(--surface); border-bottom: 1px solid var(--border); }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-size: 15px; text-decoration: none; white-space: nowrap; }
+.brand span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--primary); color: var(--on-primary); font-size: 18px; font-family: var(--font-reading); }
+.header nav { display: flex; align-self: stretch; align-items: center; gap: 8px; flex: 1; }
+.header nav a { display: inline-flex; align-items: center; height: 100%; padding: 0 16px; border-bottom: 3px solid transparent; color: var(--text-secondary); text-decoration: none; font-weight: 600; }
+.header nav a[aria-current="page"] { border-bottom-color: var(--primary); color: var(--primary); }
+.login { padding: 9px 16px; border: 1px solid var(--primary); border-radius: var(--radius); color: var(--primary); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.main { width: min(1240px, calc(100% - 48px)); margin: 0 auto; padding: clamp(50px, 8vh, 92px) 0 84px; }
+.hero { max-width: 1100px; margin: 0 auto 42px; text-align: center; }
+.hero h1 { margin: 0; color: var(--text); font-size: clamp(32px, 3.8vw, 50px); line-height: 1.18; letter-spacing: -.04em; font-weight: 700; }
+.hero h1 span { color: var(--primary); }
+.hero p { max-width: 650px; margin: 20px auto 0; color: var(--text-secondary); font-size: 17px; line-height: 1.7; }
+.paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px; }
+.pathCard { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.artwork { display: grid; place-items: center; min-height: 300px; padding: 18px 24px; background: #eff6ff; }
+.testArtwork { background: #f1f5f9; }
+.illustration { width: min(100%, 520px); height: auto; }
+.cardText { padding: 24px 26px 26px; }
+.cardText h2 { margin: 0 0 9px; font-size: 22px; }
+.cardText p { min-height: 52px; margin: 0 0 22px; color: var(--text-secondary); line-height: 1.65; }
+.cardText a { display: inline-flex; min-height: 44px; align-items: center; padding: 0 18px; border-radius: var(--radius); background: var(--primary); color: var(--on-primary); font-weight: 600; text-decoration: none; }
+.cardText a:hover { background: var(--primary-hover); }
+.cardText a:focus-visible, .header a:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+@media (max-width: 760px) {
+  .header { min-height: 60px; gap: 8px; padding: 0 14px; }
+  .brand { gap: 7px; font-size: 13px; }
+  .brand span { width: 30px; height: 30px; }
+  .header nav { justify-content: end; gap: 0; }
+  .header nav a { padding: 0 8px; font-size: 13px; }
+  .login { padding: 7px 9px; font-size: 12px; }
+  .main { width: min(560px, calc(100% - 32px)); padding: 46px 0 56px; }
+  .hero { margin-bottom: 30px; text-align: left; }
+  .hero h1 { font-size: clamp(30px, 8vw, 42px); }
+  .hero p { margin: 14px 0 0; font-size: 15px; }
+  .paths { grid-template-columns: 1fr; gap: 16px; }
+  .artwork { min-height: 230px; padding: 14px; }
+  .cardText { padding: 19px 20px 21px; }
+  .cardText h2 { font-size: 20px; }
+  .cardText p { min-height: 0; margin-bottom: 18px; font-size: 14px; }
+}
+@media (max-width: 420px) {
+  .brand { max-width: 112px; white-space: normal; line-height: 1.2; }
+  .header nav a { padding-inline: 6px; font-size: 12px; }
+}

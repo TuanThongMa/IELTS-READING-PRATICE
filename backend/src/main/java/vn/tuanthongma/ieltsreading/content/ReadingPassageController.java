@@ -17,15 +17,19 @@ class ReadingPassageController {
     private final JdbcTemplate jdbc;
     ReadingPassageController(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    record Summary(long id, String title, int partNumber, int questionCount, boolean inProgress, int answeredCount, Long latestSubmittedAttemptId) {}
+    record Summary(long id, String title, int partNumber, int questionCount, List<String> questionTypes,
+                   boolean inProgress, int answeredCount, Long latestSubmittedAttemptId) {}
+    private record SummaryRow(long id, String title, int partNumber, int questionCount, boolean inProgress,
+                              int answeredCount, Long latestSubmittedAttemptId) {}
     record Choice(String label, String text) {}
     record Question(long id, int number, String text, String afterBlank, List<Choice> choices) {}
-    record Group(long id, String variant, String instructions, boolean candidateReuse, List<Choice> candidates, List<Question> questions) {}
+    record Group(long id, String variant, String answerInputMode, String instructions, boolean candidateReuse, List<Choice> candidates, List<Question> questions) {}
     record Passage(long id, String title, String body, int partNumber, List<Group> groups) {}
 
     @GetMapping
     List<Summary> list(Principal principal) {
-        return jdbc.query("""
+        Long userId = principal == null ? null : Long.parseLong(principal.getName());
+        List<SummaryRow> rows = jdbc.query("""
                 SELECT p.passage_id, p.title, p.part_number, COUNT(q.passage_question_id) AS question_count,
                        a.quiz_attempt_id, (SELECT COUNT(*) FROM user_answers ua WHERE ua.quiz_attempt_id = a.quiz_attempt_id) AS answered_count,
                        (SELECT s.quiz_attempt_id FROM quiz_attempts s WHERE s.passage_id = p.passage_id AND s.user_id = ? AND s.status = 'SUBMITTED' ORDER BY s.submitted_at DESC, s.quiz_attempt_id DESC LIMIT 1) AS latest_submitted_id
@@ -34,7 +38,17 @@ class ReadingPassageController {
                 LEFT JOIN quiz_attempts a ON a.passage_id = p.passage_id AND a.user_id = ? AND a.status = 'IN_PROGRESS'
                 WHERE p.status = 'PUBLISHED' GROUP BY p.passage_id, p.title, p.part_number, p.published_at, a.quiz_attempt_id
                 ORDER BY p.published_at DESC, p.passage_id DESC
-                """, (r, n) -> new Summary(r.getLong("passage_id"), r.getString("title"), r.getInt("part_number"), r.getInt("question_count"), r.getObject("quiz_attempt_id") != null, r.getInt("answered_count"), r.getObject("latest_submitted_id") == null ? null : r.getLong("latest_submitted_id")), Long.parseLong(principal.getName()), Long.parseLong(principal.getName()));
+                """, (r, n) -> new SummaryRow(r.getLong("passage_id"), r.getString("title"), r.getInt("part_number"), r.getInt("question_count"),
+                r.getObject("quiz_attempt_id") != null, r.getInt("answered_count"), r.getObject("latest_submitted_id") == null ? null : r.getLong("latest_submitted_id")), userId, userId);
+        Map<Long, List<String>> questionTypes = new LinkedHashMap<>();
+        jdbc.query("""
+                SELECT DISTINCT g.passage_id, g.task_variant FROM question_groups g
+                JOIN passages p ON p.passage_id = g.passage_id
+                WHERE p.status = 'PUBLISHED' ORDER BY g.passage_id, g.task_variant
+                """, (org.springframework.jdbc.core.RowCallbackHandler) r ->
+                questionTypes.computeIfAbsent(r.getLong("passage_id"), ignored -> new ArrayList<>()).add(r.getString("task_variant")));
+        return rows.stream().map(row -> new Summary(row.id(), row.title(), row.partNumber(), row.questionCount(),
+                questionTypes.getOrDefault(row.id(), List.of()), row.inProgress(), row.answeredCount(), row.latestSubmittedAttemptId())).toList();
     }
 
     @GetMapping("/{id}")
@@ -59,7 +73,7 @@ class ReadingPassageController {
                 """, r -> { choices.computeIfAbsent(r.getLong("passage_question_id"), k -> new ArrayList<>()).add(new Choice(r.getString("answer_label"), r.getString("option_text"))); }, id);
         Map<Long, Group> groups = new LinkedHashMap<>();
         jdbc.query("""
-                SELECT g.question_group_id, g.task_variant, g.instructions, g.candidate_reuse,
+                SELECT g.question_group_id, g.task_variant, g.answer_input_mode, g.instructions, g.candidate_reuse,
                        q.passage_question_id, q.question_number, q.question_text, b.blank_text
                 FROM question_groups g JOIN passage_questions q ON q.question_group_id = g.question_group_id
                 LEFT JOIN blank_questions b ON b.passage_question_id = q.passage_question_id
@@ -67,7 +81,7 @@ class ReadingPassageController {
                 """, r -> {
             long groupId = r.getLong("question_group_id"), questionId = r.getLong("passage_question_id");
             Group group = groups.computeIfAbsent(groupId, key -> {
-                try { return new Group(key, r.getString("task_variant"), r.getString("instructions"), r.getBoolean("candidate_reuse"), candidates.getOrDefault(key, List.of()), new ArrayList<>()); }
+                try { return new Group(key, r.getString("task_variant"), r.getString("answer_input_mode"), r.getString("instructions"), r.getBoolean("candidate_reuse"), candidates.getOrDefault(key, List.of()), new ArrayList<>()); }
                 catch (java.sql.SQLException e) { throw new IllegalStateException(e); }
             });
             group.questions().add(new Question(questionId, r.getInt("question_number"), r.getString("question_text"), r.getString("blank_text"), choices.getOrDefault(questionId, List.of())));

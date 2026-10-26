@@ -1,4 +1,48 @@
 .library { max-width: 1100px; margin: auto; padding: 38px 24px 80px; }
+.libraryPage { min-height: 100vh; background: var(--bg-page); }
+.siteHeader { min-height: 70px; display: flex; align-items: center; gap: 36px; padding: 0 clamp(20px, 5vw, 72px); background: var(--surface); border-bottom: 1px solid var(--border); }
+.siteBrand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-size: 16px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.siteBrand > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--primary); color: var(--on-primary); }
+.siteHeader nav { display: flex; align-self: stretch; align-items: center; gap: 8px; flex: 1; }
+.siteHeader nav a { display: inline-flex; align-items: center; height: 100%; padding: 0 16px; color: var(--text-secondary); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; }
+.siteHeader nav a[aria-current="page"] { color: var(--primary); border-bottom-color: var(--primary); }
+.loginLink { padding: 9px 16px; border: 1px solid var(--primary); border-radius: var(--radius); color: var(--primary); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.libraryIntro { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
+.libraryIntro h1 { margin: 0 0 6px; font-size: clamp(26px, 3vw, 34px); }
+.libraryIntro p:not(.eyebrow) { margin: 0; color: var(--text-secondary); }
+.eyebrow { margin: 0 0 6px; color: var(--primary); font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+.historyLink { padding: 9px 14px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--primary); background: var(--surface); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.libraryLayout { display: grid; grid-template-columns: 240px minmax(0, 1fr); align-items: start; gap: 28px; }
+.filterPanel { padding: 0 0 14px; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.filterPanel h2 { margin: 0 0 10px; padding: 16px 18px; background: var(--primary-soft); color: var(--primary); font-size: 17px; }
+.filterChoice { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 7px 18px; cursor: pointer; font-weight: 600; }
+.filterChoice input { width: 17px; height: 17px; margin: 0; accent-color: var(--primary); }
+.partChoices { margin: 0 0 10px 30px; padding-left: 8px; border-left: 1px solid var(--border); }
+.partChoices .filterChoice { min-height: 36px; padding-left: 12px; color: var(--text-secondary); font-weight: 500; }
+.libraryResults { min-width: 0; }
+.libraryResults > .libraryTitle { min-height: 58px; margin: 0 0 16px; }
+.libraryTitle h2 { margin: 0 0 12px; font-size: 21px; }
+.libraryGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.libraryCard { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 2px 5px rgb(15 23 42 / 5%); }
+.cardCover { display: flex; align-items: end; justify-content: space-between; min-height: 116px; padding: 16px 18px; background: linear-gradient(135deg, #dbeafe, #eff6ff); color: #1d4ed8; }
+.cardCover[data-part="2"] { background: linear-gradient(135deg, #e0e7ff, #eef2ff); color: #4338ca; }
+.cardCover[data-part="3"] { background: linear-gradient(135deg, #ede9fe, #f5f3ff); color: #6d28d9; }
+.cardCover[data-part="test"] { background: linear-gradient(135deg, #dbeafe, #e0f2fe); color: #1e40af; }
+.cardCover span:first-child { padding: 5px 9px; border-radius: 5px; background: rgb(255 255 255 / 75%); font-size: 12px; font-weight: 700; }
+.cardCover span:last-child { font-size: 36px; line-height: 1; font-weight: 700; opacity: .65; }
+.libraryCardBody { display: flex; flex-direction: column; min-height: 230px; padding: 16px; }
+.libraryCardBody h3 { display: -webkit-box; min-height: 3em; margin: 0 0 8px; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 16px; line-height: 1.5; }
+.cardMeta, .progressText { margin: 0 0 8px; color: var(--text-secondary); font-size: 13px; }
+.typeList { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; color: var(--text-secondary); font-size: 12px; }
+.typeList li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.typeList li::before { content: "· "; color: var(--primary); font-weight: 700; }
+.progressText { margin: 12px 0 0; color: var(--primary); font-weight: 600; }
+.libraryCardActions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 18px; }
+.startLink { color: var(--primary); font-weight: 700; text-decoration: none; }
+.startLink:hover, .cardHistoryLink:hover { text-decoration: underline; }
+.cardHistoryLink { color: var(--text-secondary); font-size: 12px; text-decoration: none; }
+.listState { padding: 28px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-secondary); background: var(--surface); }
+.listState button { border: 0; padding: 0; color: var(--primary); background: transparent; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
 .library a, .readerHeader a { color: var(--primary-soft-text); text-decoration: none; font-size: 14px; font-weight: 600; }
 .libraryHeader { margin-bottom: 38px; }
 .libraryHeader h1 { margin: 28px 0 8px; font-size: 28px; }
@@ -13,6 +57,8 @@
 .reader { height: 100dvh; display: flex; flex-direction: column; min-height: 0; background: var(--surface); }
 .readerHeader { display: flex; align-items: center; gap: 24px; min-height: 68px; padding: 12px 24px; border-bottom: 1px solid var(--border); }
 .readerHeader h1 { margin: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.readerHeader h1 { flex: 1; min-width: 0; }
+.elapsedTime { flex: none; color: var(--primary); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .preview { margin-left: auto; color: var(--text-secondary); font-size: 13px; white-space: nowrap; }
 .retry, .clearAnswer { border: 0; padding: 2px 0; background: transparent; color: var(--primary-soft-text); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
 .workspace { display: grid; flex: 1; min-height: 0; overflow: hidden; }
@@ -26,6 +72,7 @@
 .divider:hover, .divider:focus-visible { background: var(--selection); }
 .questionsPane { background: var(--bg-page); }
 .previewNote { color: var(--text-secondary); font-size: 13px; line-height: 1.6; border-left: 3px solid var(--primary); padding-left: 12px; margin: 0 0 32px; }
+.clockWarning { margin: -20px 0 28px; color: var(--danger); font-size: 13px; line-height: 1.5; }
 .group { margin-bottom: 36px; }
 .group h2 { margin: 0 0 12px; font-size: 20px; }
 .instructions { white-space: pre-wrap; line-height: 1.7; color: var(--text-secondary); }
@@ -45,6 +92,7 @@
 .questionNav button { min-width: 36px; height: 36px; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 5px; cursor: pointer; }
 .questionNav button:hover { border-color: var(--primary); color: var(--primary); }
 .questionNav button.answered { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-soft-text); }
+.questionNav button.activeQuestion { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 700; }
 .questionNav .submitButton, .submitButton { border: 1px solid var(--primary); border-radius: var(--radius); padding: 8px 14px; background: var(--primary); color: var(--on-primary); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .questionNav .submitButton:hover, .submitButton:hover { background: var(--primary-hover); color: var(--on-primary); }
 .submitButton:disabled, .dialogActions button:disabled { opacity: .55; cursor: not-allowed; }
@@ -57,6 +105,27 @@
 .mobileTabs { display: none; }
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 760px) {
+  .siteHeader { min-height: 60px; gap: 8px; padding: 0 14px; }
+  .siteBrand { gap: 7px; font-size: 13px; }
+  .siteBrand > span { width: 30px; height: 30px; }
+  .siteHeader nav { justify-content: end; gap: 0; }
+  .siteHeader nav a { padding: 0 8px; font-size: 13px; }
+  .loginLink { padding: 7px 9px; font-size: 12px; }
+  .library { padding: 26px 16px 56px; }
+  .libraryIntro { align-items: start; flex-direction: column; margin-bottom: 20px; }
+  .libraryLayout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .filterPanel { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; padding: 0 8px 8px; }
+  .filterPanel h2 { flex: 0 0 100%; margin: 0 -8px 4px; padding: 11px 14px; }
+  .filterChoice { min-height: 36px; padding: 5px 8px; font-size: 13px; }
+  .partChoices { display: contents; }
+  .partChoices .filterChoice { padding-left: 8px; }
+  .libraryResults > .libraryTitle { margin-bottom: 14px; }
+  .libraryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .cardCover { min-height: 88px; padding: 12px; }
+  .libraryCardBody { min-height: 224px; padding: 12px; }
+  .libraryCardBody h3 { font-size: 14px; }
+  .typeList { font-size: 11px; }
+  .libraryCardActions { align-items: flex-start; flex-direction: column; gap: 8px; }
   .readerHeader { gap: 12px; padding: 12px 16px; flex-wrap: wrap; }
   .readerHeader h1 { flex: 1; }
   .preview { width: 100%; margin-left: 0; }
@@ -68,4 +137,9 @@
   .readingContent, .questionsContent { padding: 24px 20px 48px; }
   .questionNav { padding: 8px 12px; gap: 8px; flex-wrap: wrap; }
   .questionNav > div { min-width: 50%; }
+}
+@media (max-width: 420px) {
+  .siteBrand { max-width: 120px; white-space: normal; line-height: 1.2; }
+  .siteHeader nav a { padding-inline: 6px; font-size: 12px; }
+  .libraryGrid { grid-template-columns: minmax(0, 1fr); }
 }

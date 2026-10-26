@@ -29,10 +29,12 @@ class AdminQuestionGroupController {
     record QuestionInput(Long id, String questionText, String answer, String explanation, List<String> options, String blankText, List<String> alternatives) {}
     record CandidateInput(Long id, String label, String text) {}
     record CandidateView(long id, String label, String text) {}
-    record GroupInput(String taskVariant, String instructions, List<QuestionInput> questions, String wordLimitMode, List<CandidateInput> candidates, Boolean candidateReuse) {}
+    record GroupConfig(String variant, String answerInputMode) {}
+    record GroupInput(String taskVariant, String instructions, List<QuestionInput> questions, String wordLimitMode, List<CandidateInput> candidates, Boolean candidateReuse, String answerInputMode) {}
     record QuestionView(long id, int questionNumber, String questionText, String answer, String explanation, List<String> options, String blankText, List<String> alternatives) {}
-    record GroupView(long id, String taskVariant, String instructions, List<QuestionView> questions, String wordLimitMode, List<CandidateView> candidates, boolean candidateReuse) {}
+    record GroupView(long id, String taskVariant, String instructions, List<QuestionView> questions, String wordLimitMode, List<CandidateView> candidates, boolean candidateReuse, String answerInputMode) {}
     private static final Set<String> MATCHING = Set.of("MATCHING_INFORMATION", "MATCHING_HEADINGS", "MATCHING_FEATURES", "MATCHING_SENTENCE_ENDINGS");
+    private static final Set<String> TEXT_COMPLETION = Set.of("SENTENCE_COMPLETION", "NOTE_COMPLETION");
     private static final Map<String, String> WORD_LIMITS = Map.of(
             "ONE_WORD", "ONE WORD ONLY", "TWO_WORDS", "NO MORE THAN TWO WORDS",
             "TWO_WORDS_AND_ONE_NUMBER", "NO MORE THAN TWO WORDS AND/OR A NUMBER");
@@ -72,7 +74,7 @@ class AdminQuestionGroupController {
                 ORDER BY q.passage_question_id, a.display_order
                 """, rs -> { choices.computeIfAbsent(rs.getLong("passage_question_id"), ignored -> new ArrayList<>()).add(rs.getString("option_text")); }, passageId);
         jdbc.query("""
-                SELECT g.question_group_id, g.task_variant, g.instructions, g.word_limit_mode, g.candidate_reuse, q.passage_question_id, q.question_number,
+                SELECT g.question_group_id, g.task_variant, g.instructions, g.word_limit_mode, g.candidate_reuse, g.answer_input_mode, q.passage_question_id, q.question_number,
                        q.question_text, q.explanation, o.answer_label, b.answer_blank, b.blank_text, mc.answer_label AS matching_answer
                 FROM question_groups g
                 JOIN passage_questions q ON q.question_group_id = g.question_group_id
@@ -81,17 +83,17 @@ class AdminQuestionGroupController {
                 LEFT JOIN blank_questions b ON b.passage_question_id = q.passage_question_id
                 LEFT JOIN matching_question_answers ma ON ma.passage_question_id = q.passage_question_id
                 LEFT JOIN matching_questions mc ON mc.matching_question_id = ma.matching_question_id
-                WHERE g.passage_id = ? AND g.task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION', 'MATCHING_INFORMATION', 'MATCHING_HEADINGS', 'MATCHING_FEATURES', 'MATCHING_SENTENCE_ENDINGS')
+                WHERE g.passage_id = ? AND g.task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION', 'NOTE_COMPLETION', 'SUMMARY_COMPLETION', 'MATCHING_INFORMATION', 'MATCHING_HEADINGS', 'MATCHING_FEATURES', 'MATCHING_SENTENCE_ENDINGS')
                 ORDER BY g.display_order, q.question_number
                 """, rs -> {
             long groupId = rs.getLong("question_group_id");
             GroupView group = groups.get(groupId);
             if (group == null) {
-                group = new GroupView(groupId, rs.getString("task_variant"), rs.getString("instructions"), new ArrayList<>(), rs.getString("word_limit_mode"), candidates.getOrDefault(groupId, List.of()), rs.getBoolean("candidate_reuse"));
+                group = new GroupView(groupId, rs.getString("task_variant"), rs.getString("instructions"), new ArrayList<>(), rs.getString("word_limit_mode"), candidates.getOrDefault(groupId, List.of()), rs.getBoolean("candidate_reuse"), rs.getString("answer_input_mode"));
                 groups.put(groupId, group);
             }
             group.questions().add(new QuestionView(rs.getLong("passage_question_id"), rs.getInt("question_number"), rs.getString("question_text"),
-                    isBlank(group.taskVariant()) ? rs.getString("answer_blank") : MATCHING.contains(group.taskVariant()) ? rs.getString("matching_answer") : rs.getString("answer_label"), rs.getString("explanation"), choices.getOrDefault(rs.getLong("passage_question_id"), List.of()), rs.getString("blank_text"), alternatives.getOrDefault(rs.getLong("passage_question_id"), List.of())));
+                    isTextEntry(group.taskVariant(), group.answerInputMode()) ? rs.getString("answer_blank") : usesSharedChoice(group.taskVariant(), group.answerInputMode()) ? rs.getString("matching_answer") : rs.getString("answer_label"), rs.getString("explanation"), choices.getOrDefault(rs.getLong("passage_question_id"), List.of()), rs.getString("blank_text"), alternatives.getOrDefault(rs.getLong("passage_question_id"), List.of())));
         }, passageId);
         return List.copyOf(groups.values());
     }
@@ -102,9 +104,11 @@ class AdminQuestionGroupController {
     void create(@PathVariable long passageId, @RequestBody GroupInput input) {
         String variant = input.taskVariant() == null ? "TRUE_FALSE_NOT_GIVEN" : input.taskVariant();
         validate(input, variant);
+        boolean textEntry = isTextEntry(variant, input.answerInputMode());
+        boolean sharedChoice = usesSharedChoice(variant, input.answerInputMode());
         if (input.questions().stream().anyMatch(q -> q.id() != null))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Câu hỏi mới không được có id.");
-        if (MATCHING.contains(variant) && input.candidates().stream().anyMatch(c -> c.id() != null))
+        if (sharedChoice && input.candidates().stream().anyMatch(c -> c.id() != null))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Lựa chọn mới không được có id.");
         String status = requirePassage(passageId, true);
         if (!"DRAFT".equals(status)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Chỉ được thêm câu hỏi vào bản nháp.");
@@ -113,14 +117,14 @@ class AdminQuestionGroupController {
         long groupId = insertKey("""
                 INSERT INTO question_groups (passage_id, display_order, question_type, task_variant, answer_input_mode, instructions, word_limit_mode, candidate_reuse)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, "question_group_id", passageId, order, isBlank(variant) ? "BLANK" : MATCHING.contains(variant) ? "MATCHING" : "OPTION", variant,
-                isBlank(variant) ? "TEXT_ENTRY" : MATCHING.contains(variant) ? "SHARED_CHOICE_POOL" : "PER_QUESTION_CHOICE", instructions(input, variant), isBlank(variant) ? input.wordLimitMode() : null, MATCHING.contains(variant) && Boolean.TRUE.equals(input.candidateReuse()));
-        if (MATCHING.contains(variant)) {
+                """, "question_group_id", passageId, order, textEntry ? "BLANK" : sharedChoice ? "MATCHING" : "OPTION", variant,
+                textEntry ? "TEXT_ENTRY" : sharedChoice ? "SHARED_CHOICE_POOL" : "PER_QUESTION_CHOICE", instructions(input, variant), textEntry ? input.wordLimitMode() : null, sharedChoice && Boolean.TRUE.equals(input.candidateReuse()));
+        if (sharedChoice) {
             jdbc.update("INSERT INTO matching_questions (question_group_id, node_kind, display_order) VALUES (?, 'FRAME', 1)", groupId);
             syncCandidates(groupId, input.candidates());
         }
         int position = 0;
-        for (QuestionInput question : input.questions()) insertQuestion(groupId, question, 2_000_000 + ++position, variant);
+        for (QuestionInput question : input.questions()) insertQuestion(groupId, question, 2_000_000 + ++position, variant, input.answerInputMode());
         renumber(passageId);
     }
 
@@ -130,9 +134,10 @@ class AdminQuestionGroupController {
     void update(@PathVariable long passageId, @PathVariable long groupId, @RequestBody GroupInput input) {
         if (!"DRAFT".equals(requirePassage(passageId, true)))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Chỉ được sửa câu hỏi của bản nháp.");
-        List<String> variants = jdbc.queryForList("SELECT task_variant FROM question_groups WHERE question_group_id = ? AND passage_id = ? AND task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION', 'MATCHING_INFORMATION', 'MATCHING_HEADINGS', 'MATCHING_FEATURES', 'MATCHING_SENTENCE_ENDINGS')", String.class, groupId, passageId);
-        if (variants.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        String variant = variants.getFirst();
+        List<GroupConfig> configs = jdbc.query("SELECT task_variant, answer_input_mode FROM question_groups WHERE question_group_id = ? AND passage_id = ? AND task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION', 'NOTE_COMPLETION', 'SUMMARY_COMPLETION', 'MATCHING_INFORMATION', 'MATCHING_HEADINGS', 'MATCHING_FEATURES', 'MATCHING_SENTENCE_ENDINGS')", (r, n) -> new GroupConfig(r.getString(1), r.getString(2)), groupId, passageId);
+        if (configs.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        GroupConfig config = configs.getFirst();
+        String variant = config.variant();
         if (input.taskVariant() != null && !variant.equals(input.taskVariant()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể đổi dạng nhóm đã lưu.");
         validate(input, variant);
@@ -143,8 +148,10 @@ class AdminQuestionGroupController {
             if (q.id() != null && (!originalIds.contains(q.id()) || !retainedIds.add(q.id())))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Câu hỏi không thuộc nhóm hoặc bị trùng.");
         }
-        jdbc.update("UPDATE question_groups SET instructions = ?, word_limit_mode = ?, candidate_reuse = ?, updated_at = CURRENT_TIMESTAMP WHERE question_group_id = ?", instructions(input, variant), isBlank(variant) ? input.wordLimitMode() : null, MATCHING.contains(variant) && Boolean.TRUE.equals(input.candidateReuse()), groupId);
-        if (MATCHING.contains(variant)) {
+        boolean textEntry = isTextEntry(variant, config.answerInputMode());
+        boolean sharedChoice = usesSharedChoice(variant, config.answerInputMode());
+        jdbc.update("UPDATE question_groups SET instructions = ?, word_limit_mode = ?, candidate_reuse = ?, updated_at = CURRENT_TIMESTAMP WHERE question_group_id = ?", instructions(input, variant), textEntry ? input.wordLimitMode() : null, sharedChoice && Boolean.TRUE.equals(input.candidateReuse()), groupId);
+        if (sharedChoice) {
             jdbc.update("DELETE FROM matching_question_answers WHERE question_group_id = ?", groupId);
             syncCandidates(groupId, input.candidates());
         }
@@ -152,19 +159,19 @@ class AdminQuestionGroupController {
         jdbc.update("UPDATE passage_questions SET question_number = question_number + 3000000 WHERE question_group_id = ?", groupId);
         for (long oldId : originalIds) {
             if (!retainedIds.contains(oldId)) {
-                if (isBlank(variant)) removeBlank(oldId); else if (!MATCHING.contains(variant)) removeOptions(oldId);
+                if (textEntry) removeBlank(oldId); else if (!sharedChoice) removeOptions(oldId);
                 jdbc.update("DELETE FROM passage_questions WHERE passage_question_id = ?", oldId);
             }
         }
         int position = 0;
         for (QuestionInput q : input.questions()) {
             int number = 2_000_000 + ++position;
-            if (q.id() == null) insertQuestion(groupId, q, number, variant);
+            if (q.id() == null) insertQuestion(groupId, q, number, variant, config.answerInputMode());
             else {
                 jdbc.update("UPDATE passage_questions SET question_number = ?, question_text = ?, explanation = ?, updated_at = CURRENT_TIMESTAMP WHERE passage_question_id = ?",
                         number, q.questionText().strip(), explanation(q), q.id());
-                if (MATCHING.contains(variant)) insertMatchingAnswer(groupId, q.id(), q.answer());
-                else if (isBlank(variant)) {
+                if (sharedChoice) insertMatchingAnswer(groupId, q.id(), q.answer());
+                else if (textEntry) {
                     removeBlank(q.id());
                     insertBlank(q.id(), q);
                 } else if ("MULTIPLE_CHOICE_SINGLE".equals(variant)) {
@@ -188,7 +195,7 @@ class AdminQuestionGroupController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Chỉ được xóa nhóm câu hỏi của bản nháp.");
         Integer found = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM question_groups WHERE question_group_id = ? AND passage_id = ?
-                AND task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION', 'MATCHING_INFORMATION', 'MATCHING_HEADINGS', 'MATCHING_FEATURES', 'MATCHING_SENTENCE_ENDINGS')
+                AND task_variant IN ('TRUE_FALSE_NOT_GIVEN', 'YES_NO_NOT_GIVEN', 'MULTIPLE_CHOICE_SINGLE', 'SENTENCE_COMPLETION', 'NOTE_COMPLETION', 'SUMMARY_COMPLETION', 'MATCHING_INFORMATION', 'MATCHING_HEADINGS', 'MATCHING_FEATURES', 'MATCHING_SENTENCE_ENDINGS')
                 """, Integer.class, groupId, passageId);
         if (found == null || found == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         List<Long> questionIds = jdbc.queryForList("SELECT passage_question_id FROM passage_questions WHERE question_group_id = ?", Long.class, groupId);
@@ -230,17 +237,22 @@ class AdminQuestionGroupController {
         return question.explanation() == null || question.explanation().isBlank() ? null : question.explanation().strip();
     }
 
-    private void insertQuestion(long groupId, QuestionInput question, int number, String variant) {
+    private void insertQuestion(long groupId, QuestionInput question, int number, String variant, String answerInputMode) {
             long questionId = insertKey("""
                     INSERT INTO passage_questions (question_group_id, question_number, question_text, explanation)
                     VALUES (?, ?, ?, ?)
                     """, "passage_question_id", groupId, number, question.questionText().strip(),
                     explanation(question));
-            if (isBlank(variant)) insertBlank(questionId, question); else if (MATCHING.contains(variant)) insertMatchingAnswer(groupId, questionId, question.answer()); else insertOptions(questionId, question, variant);
+            if (isTextEntry(variant, answerInputMode)) insertBlank(questionId, question); else if (usesSharedChoice(variant, answerInputMode)) insertMatchingAnswer(groupId, questionId, question.answer()); else insertOptions(questionId, question, variant);
     }
 
-    private boolean isBlank(String variant) { return "SENTENCE_COMPLETION".equals(variant); }
-    private String instructions(GroupInput input, String variant) { return isBlank(variant) ? WORD_LIMITS.get(input.wordLimitMode()) : input.instructions().strip(); }
+    private boolean isTextEntry(String variant, String inputMode) {
+        return TEXT_COMPLETION.contains(variant) || ("SUMMARY_COMPLETION".equals(variant) && "TEXT_ENTRY".equals(inputMode));
+    }
+    private boolean usesSharedChoice(String variant, String inputMode) {
+        return MATCHING.contains(variant) || ("SUMMARY_COMPLETION".equals(variant) && "SHARED_CHOICE_POOL".equals(inputMode));
+    }
+    private String instructions(GroupInput input, String variant) { return isTextEntry(variant, input.answerInputMode()) ? WORD_LIMITS.get(input.wordLimitMode()) : input.instructions().strip(); }
     private String normalize(String value) { return Normalizer.normalize(value, Normalizer.Form.NFC).strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT); }
 
     private void validateBlankLimit(String answer, String mode, String label) {
@@ -330,9 +342,13 @@ class AdminQuestionGroupController {
 
     private void validate(GroupInput input, String variant) {
         List<String> allowedAnswers = ANSWERS.get(variant);
+        if ("SUMMARY_COMPLETION".equals(variant) && !Set.of("TEXT_ENTRY", "SHARED_CHOICE_POOL").contains(input.answerInputMode()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Summary Completion cần chọn cách nhập đáp án.");
+        if (TEXT_COMPLETION.contains(variant) && input.answerInputMode() != null && !"TEXT_ENTRY".equals(input.answerInputMode()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dạng điền từ cần dùng ô nhập đáp án.");
         boolean multipleChoice = "MULTIPLE_CHOICE_SINGLE".equals(variant);
-        boolean blank = isBlank(variant);
-        boolean matching = MATCHING.contains(variant);
+        boolean blank = isTextEntry(variant, input.answerInputMode());
+        boolean matching = usesSharedChoice(variant, input.answerInputMode());
         if (allowedAnswers == null && !multipleChoice && !blank && !matching) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dạng câu hỏi không được hỗ trợ.");
         if ((blank ? input.wordLimitMode() == null || !WORD_LIMITS.containsKey(input.wordLimitMode()) : input.instructions() == null || input.instructions().isBlank() || input.instructions().length() > 10_000)
                 || input.questions() == null || input.questions().isEmpty() || input.questions().size() > 40)
@@ -341,7 +357,7 @@ class AdminQuestionGroupController {
         Set<String> selectedLabels = new HashSet<>();
         if (matching) {
             if (input.candidates() == null || input.candidates().isEmpty() || input.candidates().size() > 50 || input.candidateReuse() == null
-                    || (("MATCHING_HEADINGS".equals(variant) || "MATCHING_SENTENCE_ENDINGS".equals(variant)) && input.candidateReuse()))
+                    || (("MATCHING_HEADINGS".equals(variant) || "MATCHING_SENTENCE_ENDINGS".equals(variant) || "SUMMARY_COMPLETION".equals(variant)) && input.candidateReuse()))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Danh sách lựa chọn hoặc quy tắc sử dụng lại không hợp lệ.");
             for (CandidateInput candidate : input.candidates()) {
                 if (candidate == null || candidate.label() == null || candidate.label().isBlank() || candidate.label().length() > 30 || candidate.text() == null || candidate.text().isBlank() || candidate.text().length() > 10000 || !matchingLabels.add(candidate.label().strip()))
@@ -393,12 +409,12 @@ class AdminQuestionGroupController {
             for (QuestionView q : group.questions()) {
                 if (!seenQuestions.add(q.id()) || q.questionNumber() != expectedNumber++) issues.add("Thứ tự câu hỏi hoặc số đáp án đúng không hợp lệ. Hãy kiểm tra nhóm câu hỏi.");
                 questions.add(new QuestionInput(q.id(), q.questionText(), q.answer(), q.explanation(), q.options(), q.blankText(), q.alternatives()));
-                if (!isBlank(group.taskVariant()) && !MATCHING.contains(group.taskVariant())) {
+                if (!isTextEntry(group.taskVariant(), group.answerInputMode()) && !usesSharedChoice(group.taskVariant(), group.answerInputMode())) {
                     int correct = jdbc.queryForObject("SELECT COUNT(*) FROM question_answer_options WHERE passage_question_id = ? AND is_correct = true", Integer.class, q.id());
                     if (correct != 1) issues.add("Câu " + q.questionNumber() + " phải có đúng một đáp án đúng.");
                 }
             }
-            if (MATCHING.contains(group.taskVariant())) {
+            if (usesSharedChoice(group.taskVariant(), group.answerInputMode())) {
                 int frames = jdbc.queryForObject("SELECT COUNT(*) FROM matching_questions WHERE question_group_id = ? AND node_kind = 'FRAME'", Integer.class, group.id());
                 int invalid = jdbc.queryForObject("""
                         SELECT COUNT(*) FROM matching_questions c LEFT JOIN matching_questions f
@@ -409,7 +425,7 @@ class AdminQuestionGroupController {
             }
             try {
                 validate(new GroupInput(group.taskVariant(), group.instructions(), questions, group.wordLimitMode(),
-                        group.candidates().stream().map(c -> new CandidateInput(c.id(), c.label(), c.text())).toList(), group.candidateReuse()), group.taskVariant());
+                        group.candidates().stream().map(c -> new CandidateInput(c.id(), c.label(), c.text())).toList(), group.candidateReuse(), group.answerInputMode()), group.taskVariant());
             } catch (ResponseStatusException | InvalidBlankAnswer e) {
                 issues.add("Nhóm " + group.taskVariant() + " có câu hỏi, lựa chọn hoặc đáp án chưa hợp lệ.");
             }

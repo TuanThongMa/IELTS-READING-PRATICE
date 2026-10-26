@@ -3,6 +3,7 @@ import { Link, useBlocker } from "react-router-dom";
 import { api } from "../../api";
 import styles from "./AdminPage.module.css";
 import { QuestionGroups } from "./QuestionGroups";
+import { ReadingTests } from "./ReadingTests";
 
 type Passage = { id: number; title: string; partNumber: number; status: string };
 type PassageDetail = Passage & { body: string };
@@ -22,6 +23,7 @@ export function AdminPage() {
   const [opening, setOpening] = useState(false);
   const [questionsDirty, setQuestionsDirty] = useState(false);
   const [publicationCheck, setPublicationCheck] = useState<PublicationCheck | null>(null);
+  const [managingTests, setManagingTests] = useState(false);
   const dirty = questionsDirty || (editing !== null && (title !== editing.title || body !== editing.body || partNumber !== editing.partNumber));
   const blocker = useBlocker(dirty);
   useEffect(() => {
@@ -117,10 +119,10 @@ export function AdminPage() {
   return <div className={styles.page}>
     <header className={styles.header}><Link to="/" className={styles.brand}><span>R</span> IELTS Reading Practice</Link><Link to="/">Về trang chính</Link></header>
     <main className={styles.main}>
-      <div className={styles.heading}><div><h1>Quản trị Reading</h1><p>Quản lý các bài đọc của bạn.</p></div>{!creating && !editing && <button className={styles.primary} disabled={opening} onClick={() => { setCreating(true); setError(""); setNotice(""); }}>+ Tạo passage</button>}</div>
+      <div className={styles.heading}><div><h1>Quản trị Reading</h1><p>Quản lý passage và ghép full test cho học viên.</p></div>{!creating && !editing && !managingTests && <div className={styles.headingActions}><button className={styles.secondary} disabled={opening} onClick={() => { setManagingTests(true); setError(""); setNotice(""); }}>Quản lý full test</button><button className={styles.primary} disabled={opening} onClick={() => { setCreating(true); setError(""); setNotice(""); }}>+ Tạo passage</button></div>}</div>
       {notice && <p className={styles.notice} role="status">{notice}</p>}
       {error && <p className={styles.error} role="alert">{error}</p>}
-      {creating || editing ? <section className={styles.panel}><h2>{editing ? editing.status === "DRAFT" ? "Chỉnh sửa passage" : "Xem passage" : "Tạo passage"}</h2><p className={styles.help}>{editing && editing.status !== "DRAFT" ? "Passage này không ở trạng thái nháp nên chỉ có thể xem." : "Bài được lưu dưới dạng bản nháp và chưa hiển thị với học viên."}</p>
+      {managingTests ? <ReadingTests onBack={() => setManagingTests(false)} /> : creating || editing ? <section className={styles.panel}><h2>{editing ? editing.status === "DRAFT" ? "Chỉnh sửa passage" : "Xem passage" : "Tạo passage"}</h2><p className={styles.help}>{editing && editing.status !== "DRAFT" ? "Passage này không ở trạng thái nháp nên chỉ có thể xem." : "Bài được lưu dưới dạng bản nháp và chưa hiển thị với học viên."}</p>
         <form onSubmit={submit} className={styles.form}>
           <label>Tên passage<input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} disabled={!!editing && editing.status !== "DRAFT"} required /></label>
           <label>Phần<select value={partNumber} onChange={e => setPartNumber(Number(e.target.value))} disabled={!!editing && editing.status !== "DRAFT"}><option value={1}>Passage 1</option><option value={2}>Passage 2</option><option value={3}>Passage 3</option></select></label>

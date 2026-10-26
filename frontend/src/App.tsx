@@ -1,14 +1,41 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Component, useEffect, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import styles from "./features/auth/Auth.module.css";
 import { AdminPage } from "./features/admin/AdminPage";
 import { ReadingLibrary, ReadingPassage } from "./features/reading/ReadingPage";
 import { ReadingResult } from "./features/reading/ReadingResult";
 import { ReadingHistory } from "./features/reading/ReadingHistory";
+import { ReadingTest, ReadingTestResult } from "./features/reading/ReadingTestPage";
+import { HomePage } from "./features/home/HomePage";
+import { ReadingDashboard } from "./features/home/ReadingDashboard";
 import { api } from "./api";
 
 type User = { id: number; email: string; displayName: string; role: string };
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+class ScreenErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Reading screen failed to render", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <main className={styles.status} role="alert">
+        <h1>Không thể hiển thị trang này</h1>
+        <p>Hãy tải lại trang. Nếu lỗi vẫn còn, quay lại danh sách bài đọc để thử lại.</p>
+        <p><button className={styles.primary} onClick={() => window.location.reload()}>Tải lại trang</button></p>
+        <Link to="/reading">Quay lại danh sách bài đọc</Link>
+      </main>;
+    }
+    return this.props.children;
+  }
+}
 
 function AuthPage({ register, onSignedIn }: { register: boolean; onSignedIn: (user: User) => void }) {
   const [email, setEmail] = useState("");
@@ -78,6 +105,27 @@ function AuthPage({ register, onSignedIn }: { register: boolean; onSignedIn: (us
   </main>;
 }
 
+function AppRoutes({ user, setUser, setNetworkError }: { user: User | null; setUser: (user: User | null) => void; setNetworkError: (value: boolean) => void }) {
+  return <Routes>
+    <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage key="login" register={false} onSignedIn={setUser} />} />
+    <Route path="/register" element={user ? <Navigate to="/" replace /> : <AuthPage key="register" register onSignedIn={setUser} />} />
+    <Route path="/" element={user ? <ReadingDashboard displayName={user.displayName} isAdmin={user.role === "ADMIN"} onLogout={async () => { try { const r = await api("/auth/sessions/current", "DELETE"); if (r.ok || r.status === 401) setUser(null); else setNetworkError(true); } catch { setNetworkError(true); } }} /> : <HomePage />} />
+    <Route path="/admin" element={!user ? <Navigate to="/login" replace /> : user.role === "ADMIN" ? <AdminPage /> : <Navigate to="/" replace />} />
+    <Route path="/reading" element={<ReadingLibrary authenticated={Boolean(user)} />} />
+    <Route path="/reading/history" element={user ? <ReadingHistory /> : <Navigate to="/login" replace />} />
+    <Route path="/reading/passages/:id" element={user ? <ReadingPassage /> : <Navigate to="/login" replace />} />
+    <Route path="/reading/attempts/:id/result" element={user ? <ReadingResult /> : <Navigate to="/login" replace />} />
+    <Route path="/reading/tests/:id" element={user ? <ReadingTest /> : <Navigate to="/login" replace />} />
+    <Route path="/reading/tests/attempts/:id/result" element={user ? <ReadingTestResult /> : <Navigate to="/login" replace />} />
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Routes>;
+}
+
+function GuardedRoutes(props: { user: User | null; setUser: (user: User | null) => void; setNetworkError: (value: boolean) => void }) {
+  const location = useLocation();
+  return <ScreenErrorBoundary key={location.pathname}><AppRoutes {...props} /></ScreenErrorBoundary>;
+}
+
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,16 +138,6 @@ function App() {
   }, []);
   if (loading) return <main className={styles.status}>Đang kiểm tra phiên đăng nhập...</main>;
   if (networkError) return <main className={styles.status}>Không thể kết nối tới máy chủ. Vui lòng tải lại trang.</main>;
-  return <Routes>
-    <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage key="login" register={false} onSignedIn={setUser} />} />
-    <Route path="/register" element={user ? <Navigate to="/" replace /> : <AuthPage key="register" register onSignedIn={setUser} />} />
-    <Route path="/" element={user ? <main className={styles.status}><h1>Xin chào, {user.displayName}</h1><p>Chọn bài đọc để xem nội dung và câu hỏi.</p><p><Link to="/reading">Xem các passage</Link></p>{user.role === "ADMIN" && <p><Link to="/admin">Vào khu vực quản trị</Link></p>}<button className={styles.primary} onClick={async () => { try { const r = await api("/auth/sessions/current", "DELETE"); if (r.ok || r.status === 401) setUser(null); else setNetworkError(true); } catch { setNetworkError(true); } }}>Đăng xuất</button></main> : <Navigate to="/login" replace />} />
-    <Route path="/admin" element={!user ? <Navigate to="/login" replace /> : user.role === "ADMIN" ? <AdminPage /> : <Navigate to="/" replace />} />
-    <Route path="/reading" element={user ? <ReadingLibrary /> : <Navigate to="/login" replace />} />
-    <Route path="/reading/history" element={user ? <ReadingHistory /> : <Navigate to="/login" replace />} />
-    <Route path="/reading/passages/:id" element={user ? <ReadingPassage /> : <Navigate to="/login" replace />} />
-    <Route path="/reading/attempts/:id/result" element={user ? <ReadingResult /> : <Navigate to="/login" replace />} />
-    <Route path="*" element={<Navigate to="/" replace />} />
-  </Routes>;
+  return <GuardedRoutes user={user} setUser={setUser} setNetworkError={setNetworkError} />;
 }
 export default App;
