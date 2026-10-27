@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api";
+import { PassageText } from "./ReadingPage";
 import styles from "./ReadingPage.module.css";
 import resultStyles from "./ReadingResult.module.css";
 
@@ -9,7 +10,9 @@ type Question = { id: number; number: number; text: string; afterBlank: string |
 type Group = { id: number; variant: string; answerInputMode: string; instructions: string; candidateReuse: boolean; candidates: Choice[]; questions: Question[] };
 type Passage = { id: number; partNumber: number; title: string; body: string; startNumber: number; groups: Group[] };
 type Test = { id: number; title: string; passages: Passage[] };
-type Attempt = { id: number; elapsedSeconds: number; answers: { questionId: number; value: string }[] };
+type ReadingMode = "PRACTICE" | "REAL_TEST";
+type Attempt = { id: number; status: string; mode: ReadingMode; elapsedSeconds: number; answers: { questionId: number; value: string }[] };
+type ClockState = { status: string; elapsedSeconds: number };
 type ReviewQuestion = { id: number; number: number; text: string; afterBlank: string | null; status: "CORRECT" | "INCORRECT" | "SKIPPED"; choices: Choice[]; submittedAnswer: string | null; correctAnswer: string; acceptedAnswers: string[]; explanation: string | null };
 type ReviewGroup = { id: number; family: string; variant: string; instructions: string; candidates: Choice[]; questions: ReviewQuestion[] };
 type ReviewPassage = { id: number; partNumber: number; title: string; body: string; startNumber: number; groups: ReviewGroup[] };
@@ -21,14 +24,25 @@ const format = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart
 
 export function ReadingTest() {
   const { id } = useParams(); const navigate = useNavigate();
-  const [test, setTest] = useState<Test | null>(null); const [attempt, setAttempt] = useState<Attempt | null>(null); const [answers, setAnswers] = useState<Answers>({}); const [passageIndex, setPassageIndex] = useState(0); const [activeQuestionId, setActiveQuestionId] = useState<number | null>(null); const [elapsed, setElapsed] = useState(0); const [state, setState] = useState("loading"); const [saving, setSaving] = useState(false); const [confirm, setConfirm] = useState(false); const [loadAttempt, setLoadAttempt] = useState(0);
-  const values = useRef<Answers>({}), saved = useRef<Answers>({}), running = useRef(false), debounce = useRef<ReturnType<typeof setTimeout> | null>(null), base = useRef(0), started = useRef(Date.now()), questionsPane = useRef<HTMLElement>(null);
-  const nowElapsed = () => Math.min(3600, base.current + Math.floor((Date.now() - started.current) / 1000));
-  useEffect(() => { let active = true; setState("loading"); setTest(null); setAttempt(null); (async () => { try { const [detail, start] = await Promise.all([api(`/api/reading/tests/${id}`), api(`/api/reading/tests/${id}/attempts`, "POST")]); if (!detail.ok || !start.ok) throw new Error(); const data = await detail.json() as Test, existing = await start.json() as Attempt; if (!active) return; const initial = Object.fromEntries(existing.answers.map(a => [a.questionId, a.value])); values.current = initial; saved.current = { ...initial }; setAnswers(initial); base.current = existing.elapsedSeconds; started.current = Date.now(); setElapsed(existing.elapsedSeconds); setTest(data); setAttempt(existing); setState("ready"); } catch { if (active) setState("error"); } })(); return () => { active = false; if (debounce.current) clearTimeout(debounce.current); }; }, [id, loadAttempt]);
-  useEffect(() => { if (!attempt || state !== "ready") return; const tick = setInterval(() => { const current = nowElapsed(); setElapsed(current); if (current >= 3600) void submit(true); }, 1000); const heartbeat = setInterval(() => { void api(`/api/reading/tests/attempts/${attempt.id}/heartbeat`, "PUT", { elapsedSeconds: nowElapsed() }); }, 15000); return () => { clearInterval(tick); clearInterval(heartbeat); }; }, [attempt, state]);
-  async function flush() { if (!attempt || running.current) return; running.current = true; setSaving(true); try { while (true) { const key = Object.keys(values.current).find(k => (values.current[Number(k)] || "") !== (saved.current[Number(k)] || "")); if (!key) break; const value = values.current[Number(key)] || ""; const r = await api(`/api/reading/tests/attempts/${attempt.id}/answers/${key}`, "PUT", { value }); if (!r.ok) throw new Error(); saved.current[Number(key)] = value; } } finally { running.current = false; setSaving(false); } }
+  const [searchParams] = useSearchParams();
+  const [test, setTest] = useState<Test | null>(null); const [attempt, setAttempt] = useState<Attempt | null>(null); const [answers, setAnswers] = useState<Answers>({}); const [passageIndex, setPassageIndex] = useState(0); const [activeQuestionId, setActiveQuestionId] = useState<number | null>(null); const [elapsed, setElapsed] = useState(0); const [state, setState] = useState("loading"); const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState(false); const [expired, setExpired] = useState(false); const [confirm, setConfirm] = useState(false); const [exitConfirm, setExitConfirm] = useState(false); const [exitSaveError, setExitSaveError] = useState(false); const [loadAttempt, setLoadAttempt] = useState(0);
+  const values = useRef<Answers>({}), saved = useRef<Answers>({}), running = useRef(false), debounce = useRef<ReturnType<typeof setTimeout> | null>(null), base = useRef(0), started = useRef(Date.now()), questionsPane = useRef<HTMLElement>(null), exitDialog = useRef<HTMLDialogElement>(null), submitted = useRef(false), leaving = useRef(false), exitApproved = useRef(false), expirySubmitting = useRef(false), expiryRetryAt = useRef(0);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => currentLocation.pathname !== nextLocation.pathname && attempt?.mode === "REAL_TEST" && state === "ready" && !submitted.current && !exitApproved.current);
+  const nowElapsed = () => {
+    const current = base.current + Math.floor((Date.now() - started.current) / 1000);
+    return attempt?.mode === "REAL_TEST" ? Math.min(3600, current) : current;
+  };
+  useEffect(() => { let active = true; setState("loading"); setTest(null); setAttempt(null); setActiveQuestionId(null); setExpired(false); expirySubmitting.current = false; expiryRetryAt.current = 0; submitted.current = false; leaving.current = false; exitApproved.current = false; (async () => { try { const requestedMode: ReadingMode = searchParams.get("mode") === "REAL_TEST" ? "REAL_TEST" : "PRACTICE"; const [detail, start] = await Promise.all([api(`/api/reading/tests/${id}`), api(`/api/reading/tests/${id}/attempts`, "POST", { mode: requestedMode })]); if (!detail.ok || !start.ok) throw new Error(); const data = await detail.json() as Test, existing = await start.json() as Attempt; if (!active) return; if (existing.status === "SUBMITTED") { submitted.current = true; navigate(`/reading/tests/attempts/${existing.id}/result`, { replace: true }); return; } const initial = Object.fromEntries(existing.answers.map(a => [a.questionId, a.value])); values.current = initial; saved.current = { ...initial }; setAnswers(initial); base.current = existing.elapsedSeconds; started.current = Date.now(); setElapsed(existing.elapsedSeconds); setTest(data); setAttempt(existing); setState("ready"); } catch { if (active) setState("error"); } })(); return () => { active = false; if (debounce.current) clearTimeout(debounce.current); }; }, [id, loadAttempt, searchParams, navigate]);
+  useEffect(() => { if (blocker.state === "blocked") setExitConfirm(true); }, [blocker.state]);
+  useEffect(() => { if (exitConfirm && exitDialog.current && !exitDialog.current.open) exitDialog.current.showModal(); else if (!exitConfirm && exitDialog.current?.open) exitDialog.current.close(); }, [exitConfirm]);
+  useEffect(() => { if (attempt?.mode !== "REAL_TEST") return; const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; }; window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn); }, [attempt?.mode]);
+  useEffect(() => { if (!attempt || state !== "ready") return; const tick = setInterval(() => { const current = nowElapsed(); setElapsed(current); if (attempt.mode === "REAL_TEST" && current >= 3600) { setExpired(true); if (navigator.onLine && Date.now() >= expiryRetryAt.current && !expirySubmitting.current) { expirySubmitting.current = true; void submit(true).finally(() => { if (!submitted.current) expirySubmitting.current = false; }); } } }, 1000); const heartbeat = setInterval(() => { void saveClock(); }, 15000); const onVisibilityChange = () => { void saveClock(); }; const onOnline = () => { void saveClock(true); }; document.addEventListener("visibilitychange", onVisibilityChange); window.addEventListener("online", onOnline); return () => { clearInterval(tick); clearInterval(heartbeat); document.removeEventListener("visibilitychange", onVisibilityChange); window.removeEventListener("online", onOnline); if (!submitted.current && !leaving.current) void saveClock(); }; }, [attempt, state]);
+  async function flush() { if (!attempt) return false; while (running.current) await new Promise(resolve => window.setTimeout(resolve, 25)); running.current = true; setSaving(true); setSaveError(false); try { while (true) { const key = Object.keys(values.current).find(k => (values.current[Number(k)] || "") !== (saved.current[Number(k)] || "")); if (!key) break; const value = values.current[Number(key)] || ""; const r = await api(`/api/reading/tests/attempts/${attempt.id}/answers/${key}`, "PUT", { value }); if (!r.ok) throw new Error(); saved.current[Number(key)] = value; } return true; } catch { setSaveError(true); return false; } finally { running.current = false; setSaving(false); } }
   function answer(questionId: number, value: string) { values.current = { ...values.current, [questionId]: value }; setAnswers(values.current); if (debounce.current) clearTimeout(debounce.current); debounce.current = setTimeout(() => void flush(), 500); }
-  async function submit(expired = false) { if (!attempt || saving) return; await flush(); const r = await api(`/api/reading/tests/attempts/${attempt.id}/submit`, "POST", { elapsedSeconds: nowElapsed() }); if (r.ok) navigate(`/reading/tests/attempts/${attempt.id}/result`, { replace: true }); else if (!expired) setConfirm(false); }
+  async function saveClock(recovered = false) { if (!attempt) return false; try { const suffix = recovered ? "?recovered=true" : ""; const response = await api(`/api/reading/tests/attempts/${attempt.id}/heartbeat${suffix}`, "PUT"); if (!response.ok) return false; const clock = await response.json() as ClockState; const syncedElapsed = recovered ? clock.elapsedSeconds : Math.max(base.current, clock.elapsedSeconds); base.current = syncedElapsed; started.current = Date.now(); setElapsed(syncedElapsed); if (clock.status === "SUBMITTED") { submitted.current = true; navigate(`/reading/tests/attempts/${attempt.id}/result`, { replace: true }); } return true; } catch { return false; } }
+  async function leavePractice() { if (!attempt || attempt.mode !== "PRACTICE") return; if (debounce.current) clearTimeout(debounce.current); const answersSaved = await flush(); if (!answersSaved) return; try { const response = await api(`/api/reading/tests/attempts/${attempt.id}/pause`, "PUT"); if (!response.ok) throw new Error(); leaving.current = true; navigate("/reading"); } catch { setSaveError(true); } }
+  async function leaveRealTest(force = false) { if (!attempt || attempt.mode !== "REAL_TEST") return; setExitSaveError(false); if (debounce.current) clearTimeout(debounce.current); const answersSaved = await flush(); let paused: Attempt | null = null; try { const response = await api(`/api/reading/tests/attempts/${attempt.id}/pause`, "PUT"); if (response.ok) paused = await response.json() as Attempt; } catch { paused = null; } if (paused?.status === "SUBMITTED") { submitted.current = true; navigate(`/reading/tests/attempts/${attempt.id}/result`, { replace: true }); return; } if ((!answersSaved || !paused) && !force) { setExitSaveError(true); return; } leaving.current = true; exitApproved.current = true; setExitConfirm(false); if (blocker.state === "blocked") blocker.proceed(); else navigate("/reading"); }
+  async function submit(fromExpiry = false) { if (!attempt || saving) return; if (debounce.current) clearTimeout(debounce.current); const answersSaved = await flush(); if (!answersSaved && !fromExpiry) return; try { const response = await api(`/api/reading/tests/attempts/${attempt.id}/submit`, "POST"); if (!response.ok) throw new Error(); submitted.current = true; navigate(`/reading/tests/attempts/${attempt.id}/result`, { replace: true }); } catch { setSaveError(true); if (fromExpiry) expiryRetryAt.current = Date.now() + 5000; else setConfirm(false); } }
   function goToQuestion(question: Question) {
     const index = test?.passages.findIndex(passage => passage.groups.some(group => group.questions.some(item => item.id === question.id))) ?? -1;
     if (index < 0) return;
@@ -45,15 +59,16 @@ export function ReadingTest() {
   const passage = test.passages[passageIndex]; const all = test.passages.flatMap(p => p.groups.flatMap(g => g.questions)); const answered = all.filter(q => (answers[q.id] || "").trim()).length;
   return <main className={styles.reader}>
     <header className={styles.readerHeader}>
-      <Link to="/reading">← Danh sách</Link><h1>{test.title}</h1>
-      <span className={styles.preview} role="timer">{format(Math.max(0, 3600 - elapsed))} · {saving ? "Đang lưu" : "Đã lưu"}</span>
+      {attempt.mode === "REAL_TEST" ? <button type="button" className={styles.exitButton} onClick={() => { setExitSaveError(false); setExitConfirm(true); }}>Thoát thi</button> : <button type="button" className={styles.retry} onClick={() => void leavePractice()}>← Danh sách</button>}<h1>{test.title}</h1>
+      {attempt.mode === "REAL_TEST" && <span className={styles.modeBadge}>Thi thật</span>}
+      <span className={styles.preview} role="timer">{attempt.mode === "REAL_TEST" ? `Còn lại ${format(Math.max(0, 3600 - elapsed))}` : `Đã làm ${format(elapsed)}`} · {expired ? (saving ? "Đang nộp bài" : saveError ? <span role="alert">Hết giờ · chưa nộp được</span> : "Đang nộp bài") : saving ? "Đang lưu" : saveError ? <><span role="alert">Chưa lưu được</span> · <button type="button" className={styles.retry} onClick={() => void flush()}>Thử lại</button></> : "Đã lưu"}</span>
     </header>
     <div className={styles.mobileTabs} role="tablist"><button aria-selected>Passage {passage.partNumber}</button></div>
     <div className={styles.workspace} style={{ gridTemplateColumns: "minmax(0, 1fr) 12px minmax(0, 1fr)" }}>
       <section className={`${styles.pane} ${styles.readingPane}`}>
         <div className={styles.readingContent}>
           <p className={styles.passageLabel}>Reading passage {passage.partNumber} · Questions {passage.startNumber}–{passage.startNumber + passage.groups.flatMap(group => group.questions).length - 1}</p>
-          <h2>{passage.title}</h2><div className={styles.passageBody}>{passage.body}</div>
+          <h2>{passage.title}</h2><PassageText body={passage.body} passageId={passage.id} allowDictionary={attempt.mode !== "REAL_TEST"} />
         </div>
       </section>
       <div className={styles.divider} aria-hidden>⋮</div>
@@ -81,7 +96,13 @@ export function ReadingTest() {
     </footer>
     {confirm && <dialog open className={styles.submitDialog}>
       <h2>Xác nhận nộp full test</h2><p>Bạn đã trả lời <strong>{answered}/40</strong> câu. Thời gian còn lại: <strong>{format(Math.max(0, 3600 - elapsed))}</strong>.</p><p>Sau khi nộp, bạn không thể thay đổi câu trả lời.</p>
-      <div className={styles.dialogActions}><button onClick={() => setConfirm(false)}>Tiếp tục làm</button><button className={styles.submitButton} onClick={() => void submit()}>Xác nhận nộp bài</button></div>
+      {saveError && <p role="alert">Có câu trả lời chưa được lưu. Hãy thử lại trước khi nộp.</p>}
+      <div className={styles.dialogActions}><button onClick={() => setConfirm(false)}>Tiếp tục làm</button><button className={styles.submitButton} disabled={saving} onClick={() => void submit()}>{saving ? "Đang lưu..." : "Xác nhận nộp bài"}</button></div>
+    </dialog>}
+    {attempt.mode === "REAL_TEST" && <dialog ref={exitDialog} className={styles.submitDialog} aria-labelledby="test-exit-title" onCancel={event => { event.preventDefault(); if (blocker.state === "blocked") blocker.reset(); setExitConfirm(false); }}>
+      <h2 id="test-exit-title">Thoát chế độ thi thật?</h2><p>Lượt làm sẽ được lưu để bạn tiếp tục sau. Đồng hồ dừng khi thoát và tiếp tục khi mở lại lượt làm.</p>
+      {exitSaveError && <p role="alert">Chưa xác nhận được lưu đầy đủ câu trả lời hoặc thời gian. Hãy thử lại; nếu vẫn muốn thoát, bạn có thể thoát dù chưa lưu dữ liệu mới nhất.</p>}
+      <div className={styles.dialogActions}><button type="button" onClick={() => { if (blocker.state === "blocked") blocker.reset(); setExitConfirm(false); }}>Ở lại làm bài</button><button type="button" className={styles.submitButton} onClick={() => void leaveRealTest()}>Thoát, tiếp tục sau</button>{exitSaveError && <button type="button" className={styles.forceExitButton} onClick={() => void leaveRealTest(true)}>Thoát dù chưa lưu</button>}</div>
     </dialog>}
   </main>;
 }
@@ -94,9 +115,11 @@ export function ReadingTestResult() {
   const [tab, setTab] = useState<"reading" | "questions">("reading");
   const [width, setWidth] = useState(50);
   const [target, setTarget] = useState<number | null>(null);
+  const [activeQuestionNumber, setActiveQuestionNumber] = useState<number | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
   const questionsPane = useRef<HTMLElement>(null);
   useEffect(() => {
+    setActiveQuestionNumber(null);
     api(`/api/reading/tests/attempts/${id}/result`).then(async response => {
       if (response.ok) setResult(await response.json() as Result);
     });
@@ -159,7 +182,8 @@ export function ReadingTestResult() {
     </div>
     <footer className={styles.questionNav} aria-label="Điều hướng câu hỏi"><span>Câu hỏi</span><div>{questions.map(question => {
       const index = result.passages.findIndex(item => item.groups.some(group => group.questions.some(candidate => candidate.id === question.id)));
-      return <button key={question.id} className={resultStyles[`nav${question.status}`]} onClick={() => { setPassageIndex(index); setTab("questions"); setTarget(question.number); }} aria-label={`Đi đến câu ${question.number}, ${statusNames[question.status]}`}>{question.number}</button>;
+      const isActive = activeQuestionNumber === question.number;
+      return <button key={question.id} className={`${resultStyles[`nav${question.status}`]} ${isActive ? resultStyles.navActive : ""}`} onClick={() => { setActiveQuestionNumber(question.number); setPassageIndex(index); setTab("questions"); setTarget(question.number); }} aria-current={isActive ? "true" : undefined} aria-label={`Đi đến câu ${question.number}, ${statusNames[question.status]}${isActive ? ", đang chọn" : ""}`}>{question.number}</button>;
     })}</div></footer>
   </main>;
   return <main className={resultStyles.page}>
@@ -183,7 +207,7 @@ export function ReadingTestResult() {
       </div>
     </section>
     <div className={resultStyles.actions}>
-      <button type="button" onClick={() => { setReview(true); setPassageIndex(0); setTab("reading"); }}>Xem lại bài</button>
+      <button type="button" onClick={() => { setReview(true); setPassageIndex(0); setTab("reading"); setActiveQuestionNumber(null); }}>Xem lại bài</button>
       <Link className={resultStyles.secondaryAction} to="/reading">Về danh sách</Link>
     </div>
     <section className={resultStyles.breakdown}>

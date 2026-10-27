@@ -17,30 +17,48 @@ class PracticeAttemptController {
     private final JdbcTemplate jdbc;
     PracticeAttemptController(JdbcTemplate jdbc) { this.jdbc = jdbc; }
     record Answer(long questionId, String value) {}
-    record Attempt(long id, long passageId, String status, int elapsedSeconds, List<Answer> answers) {}
+    record Attempt(long id, long passageId, String status, String mode, int elapsedSeconds, List<Answer> answers) {}
+    record StartAttempt(String mode) {}
     record AnswerInput(String value) {}
     record ClockInput(Integer elapsedSeconds) {}
+    record PauseInput(Integer elapsedSeconds) {}
 
     @PostMapping("/passages/{passageId}/attempts")
     @Transactional
-    Attempt start(@PathVariable long passageId, Principal principal) {
+    Attempt start(@PathVariable long passageId, @RequestBody(required = false) StartAttempt input, Principal principal) {
         long userId = Long.parseLong(principal.getName());
+        String requestedMode = input == null || input.mode() == null ? "PRACTICE" : input.mode();
+        if (!List.of("PRACTICE", "REAL_TEST").contains(requestedMode)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chế độ làm bài không hợp lệ.");
         jdbc.queryForObject("SELECT user_id FROM users WHERE user_id = ? FOR UPDATE", Long.class, userId);
         Integer found = jdbc.queryForObject("SELECT COUNT(*) FROM passages WHERE passage_id = ? AND status = 'PUBLISHED'", Integer.class, passageId);
         if (found == null || found == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        List<Long> ids = jdbc.queryForList("SELECT quiz_attempt_id FROM quiz_attempts WHERE user_id = ? AND passage_id = ? AND status = 'IN_PROGRESS'", Long.class, userId, passageId);
+        List<Long> ids = jdbc.queryForList("SELECT quiz_attempt_id FROM quiz_attempts WHERE user_id = ? AND passage_id = ? AND status IN ('IN_PROGRESS', 'PAUSED') ORDER BY CASE status WHEN 'IN_PROGRESS' THEN 0 ELSE 1 END, quiz_attempt_id DESC LIMIT 1", Long.class, userId, passageId);
         long id;
-        if (!ids.isEmpty()) id = ids.getFirst();
+        if (!ids.isEmpty()) { id = ids.getFirst(); jdbc.update("UPDATE quiz_attempts SET status = 'IN_PROGRESS', active_marker = true, updated_at = CURRENT_TIMESTAMP WHERE quiz_attempt_id = ? AND status = 'PAUSED'", id); }
         else {
             var keys = new GeneratedKeyHolder();
             jdbc.update(connection -> {
-                var statement = connection.prepareStatement("INSERT INTO quiz_attempts (user_id, passage_id, active_marker) VALUES (?, ?, true)", new String[]{"quiz_attempt_id"});
-                statement.setLong(1, userId); statement.setLong(2, passageId); return statement;
+                var statement = connection.prepareStatement("INSERT INTO quiz_attempts (user_id, passage_id, mode, active_marker) VALUES (?, ?, ?, true)", new String[]{"quiz_attempt_id"});
+                statement.setLong(1, userId); statement.setLong(2, passageId); statement.setString(3, requestedMode); return statement;
             }, keys);
             if (keys.getKey() == null) throw new IllegalStateException("No attempt key");
             id = keys.getKey().longValue();
         }
         return readAttempt(id, userId);
+    }
+
+    @PutMapping("/attempts/{attemptId}/pause")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
+    void pause(@PathVariable long attemptId, @RequestBody PauseInput input, Principal principal) {
+        long userId = Long.parseLong(principal.getName());
+        int seconds = checkedElapsedSeconds(input == null ? null : new ClockInput(input.elapsedSeconds()));
+        List<Attempt> found = jdbc.query("SELECT quiz_attempt_id, passage_id, status, mode, elapsed_seconds FROM quiz_attempts WHERE quiz_attempt_id = ? AND user_id = ? FOR UPDATE",
+                (r, n) -> new Attempt(r.getLong(1), r.getLong(2), r.getString(3), r.getString(4), r.getInt(5), List.of()), attemptId, userId);
+        if (found.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        Attempt attempt = found.getFirst();
+        if (!"IN_PROGRESS".equals(attempt.status()) || !"REAL_TEST".equals(attempt.mode())) throw new ResponseStatusException(HttpStatus.CONFLICT);
+        jdbc.update("UPDATE quiz_attempts SET status = 'PAUSED', active_marker = NULL, elapsed_seconds = GREATEST(elapsed_seconds, ?), updated_at = CURRENT_TIMESTAMP WHERE quiz_attempt_id = ?", seconds, attemptId);
     }
 
     @GetMapping("/attempts/{attemptId}")
@@ -83,8 +101,8 @@ class PracticeAttemptController {
     @Transactional
     void save(@PathVariable long attemptId, @PathVariable long questionId, @RequestBody AnswerInput input, Principal principal) {
         long userId = Long.parseLong(principal.getName());
-        List<Attempt> attempts = jdbc.query("SELECT quiz_attempt_id, passage_id, status, elapsed_seconds FROM quiz_attempts WHERE quiz_attempt_id = ? AND user_id = ? FOR UPDATE",
-                (r, n) -> new Attempt(r.getLong(1), r.getLong(2), r.getString(3), r.getInt(4), List.of()), attemptId, userId);
+        List<Attempt> attempts = jdbc.query("SELECT quiz_attempt_id, passage_id, status, mode, elapsed_seconds FROM quiz_attempts WHERE quiz_attempt_id = ? AND user_id = ? FOR UPDATE",
+                (r, n) -> new Attempt(r.getLong(1), r.getLong(2), r.getString(3), r.getString(4), r.getInt(5), List.of()), attemptId, userId);
         if (attempts.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         Attempt attempt = attempts.getFirst();
         if (!"IN_PROGRESS".equals(attempt.status())) throw new ResponseStatusException(HttpStatus.CONFLICT);
@@ -119,12 +137,12 @@ class PracticeAttemptController {
     }
 
     private Attempt readAttempt(long id, long userId) {
-        List<Attempt> attempts = jdbc.query("SELECT quiz_attempt_id, passage_id, status, elapsed_seconds FROM quiz_attempts WHERE quiz_attempt_id = ? AND user_id = ?",
-                (r, n) -> new Attempt(r.getLong(1), r.getLong(2), r.getString(3), r.getInt(4), List.of()), id, userId);
+        List<Attempt> attempts = jdbc.query("SELECT quiz_attempt_id, passage_id, status, mode, elapsed_seconds FROM quiz_attempts WHERE quiz_attempt_id = ? AND user_id = ?",
+                (r, n) -> new Attempt(r.getLong(1), r.getLong(2), r.getString(3), r.getString(4), r.getInt(5), List.of()), id, userId);
         if (attempts.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         Attempt attempt = attempts.getFirst();
         List<Answer> answers = jdbc.query("SELECT passage_question_id, COALESCE(submitted_raw_value, submitted_value) AS answer_value FROM user_answers WHERE quiz_attempt_id = ? ORDER BY passage_question_id",
                 (r, n) -> new Answer(r.getLong(1), r.getString(2)), id);
-        return new Attempt(attempt.id(), attempt.passageId(), attempt.status(), attempt.elapsedSeconds(), answers);
+        return new Attempt(attempt.id(), attempt.passageId(), attempt.status(), attempt.mode(), attempt.elapsedSeconds(), answers);
     }
 }

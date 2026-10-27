@@ -210,11 +210,11 @@ The passage and question panes have independent vertical scroll positions and a 
 
 The reading-tools rail is deliberately quiet and contextual:
 
-- `Highlight (H)` lets a learner mark selected passage text with one personal, non-evaluative annotation colour in practice/review mode. Each highlight is saved against the current attempt's immutable passage version, has no scoring effect, and is visible only to its owner.
-- `Notes (N)` opens a small composer anchored to the selection; integration with persistent personal vocabulary notes is delivered in Phase 8. Until then, this control is not shown as a fake working feature.
-- `Dictionary (T)` opens a selection-based lookup in practice/review mode only; it remains unavailable in exam mode until the session is finalized.
+- Selecting text in a passage opens a small contextual menu with `Tô sáng` and `Tra từ`. The menu is anchored to the selection and does not resize the reading/question panes.
+- A saved highlight belongs to the learner and immutable passage version, so it remains when the learner leaves and later reopens the passage. It stores the exact quote and a UTF-16 range; overlapping highlights are rejected. Clicking a saved highlight removes it.
+- Dictionary lookup is selection-based. The user may choose a returned sense and save the original selected form, selected-definition snapshot, and passage sentence as a private vocabulary note.
 
-Highlight is unavailable throughout an active exam session. It is never used by the system as automatic answer evidence; finalized review supplies explanation text only. A new attempt begins with no prior attempt's highlights.
+Highlight, dictionary lookup, and vocabulary-note creation are unavailable during an active full-test session. In passage practice, highlights are available and persist across attempts. They are never used by the system as automatic answer evidence; finalized review supplies explanation text only.
 
 ### Question-family interaction rules
 
@@ -260,9 +260,9 @@ The detailed breakdown is intentionally limited to the approved persisted famili
 
 In the question-pane review, an answer explanation expands below the selected question: answer status, submitted/correct values, and a concise explanation. The learner can collapse it to continue scanning answers; the launch MVP adds no automatic passage-evidence highlight.
 
-### Vocabulary notes and categories — later learner workspace
+### Vocabulary notes and categories — learner workspace
 
-The supplied vocabulary reference has a useful three-zone frame: a category rail, a focused word list, and an add/edit drawer. This system keeps that familiar shape but applies the approved data model rather than reproducing unrelated flashcard or dictionary fields. It is a Phase 8 learner feature; the category ownership foundation is delivered in Phase 4.
+The supplied vocabulary reference has a useful three-zone frame: a category rail, a focused word list, and an add/edit drawer. This system keeps that familiar shape but applies the approved data model rather than reproducing unrelated flashcard or dictionary fields. A compact recent-words list appears below the signed-in dashboard's seven-day Reading statistics. `Từ vựng` appears in the authenticated navbar; it is not a public route.
 
 ```text
 ┌────────────────────┬──────────────────────────────────────────┬────────────────────────┐
@@ -277,19 +277,19 @@ The supplied vocabulary reference has a useful three-zone frame: a category rail
 └────────────────────┴──────────────────────────────────────────┴────────────────────────┘
 ```
 
-Desktop uses a 240px category rail and a data list as the stable work surface; the add/edit drawer occupies the right edge only while it is open. The category rail begins with `All notes`, followed by the learner's own categories and count. `Add category` is inline and asks only for a category name. A category delete confirmation says how many note associations will be removed. Deletion removes those associations only and never the learner's vocabulary notes.
+Desktop uses a 240px category rail and a data list as the stable work surface; the add/edit drawer occupies the right edge only while it is open. The category rail begins with `Tất cả từ`, followed by the learner's own categories and count. Category creation is inline and asks only for a category name. A category delete confirmation explains that saved words will remain and only their category links are removed.
 
 The note list shows the saved headword, selected definition snapshot, optional personal meaning, source context (`Manual` or a passage reference), categories, and review status (`New`, `Learning`, `Mastered`). Filter by category, keyword, or review status. Compact totals may show those three actual states, but the MVP has no flashcard queue, spaced-repetition scheduler, artificial mastery bar, or daily goal.
 
-`Add vocabulary note` follows this sequence:
+`Thêm từ vựng` follows this sequence:
 
-1. search a cached vocabulary entry or enter a manual lookup query;
+1. search the user's selected word through the local shared cache first; the backend calls Merriam-Webster only when the term is not cached;
 2. choose one returned sense (definition, part of speech, phonetic/audio when available);
 3. copy that selected definition into the note snapshot, then optionally add a personal meaning and a context/note;
 4. select one or more owned categories, with inline category creation; and
 5. save as `New` by default.
 
-Learners cannot edit global `vocabulary_entries`, senses, provider data, or another learner's notes. A note may reference the same word more than once when its chosen sense or passage context differs. Fields such as verb pattern, collocation, and example sentence are intentionally not invented in this MVP because they are not represented in the approved personal-note model. When a dictionary response is unavailable, the drawer keeps the manual query and explains that lookup can be retried; it does not fabricate a definition.
+Learners cannot edit global `vocabulary_entries`, senses, provider data, or another learner's notes. A note may reference the same word more than once when its chosen sense or passage context differs. When a dictionary response is unavailable, the drawer explains the failure and offers retry; it does not fabricate a definition. Flashcards in this MVP flip between saved word and meaning and let the learner update `NEW`, `LEARNING`, or `MASTERED`; they do not implement spaced repetition.
 
 On narrow screens, the category rail becomes a simple filter drawer and the note form becomes a full-screen drawer. This satisfies the project's "usable and visually balanced" mobile standard without giving the workspace separate mobile functionality.
 
@@ -338,8 +338,8 @@ The administrator owns Reading content and users, while learner vocabulary notes
 | `QuestionNavigator` | numbered state, unanswered/answered/flagged state, keyboard navigation, no correct-answer disclosure |
 | `QuestionGroup` | renders one approved family plus its safe `taskVariant`, input mode, shared-pool and candidate-reuse metadata; it never receives a correct-answer link during an active attempt |
 | `ReaderPane` | readable measure and selection affordance; personal annotations are distinct from answer-status feedback |
-| `AttemptAnnotationLayer` | creates, restores, and removes owner-only text anchors for one practice/review attempt; unavailable in active exam mode |
-| `ReadingToolsRail` | shows only implemented practice/review tools; completely unavailable during an active exam session |
+| `PassageHighlightLayer` | creates, restores, and removes owner-only highlights anchored to a published passage version; unavailable in active full-test mode |
+| `ReadingToolsRail` | shows highlight and dictionary lookup actions in passage practice; unavailable during an active full-test session |
 | `ReviewExplanation` | finalized-only explanation with submitted value and correct value; no automatic evidence highlight in the launch MVP |
 | `ModeCard` | explains consequences before an irreversible exam start |
 | `ResultSummary` | accessible score ring, correct/incorrect/skipped counts, duration, optional versioned full-test guidance label, review entry point |
@@ -411,12 +411,12 @@ Use `400` for malformed/validation input, `401` for unauthenticated, `403` for r
 | Learner catalogue | reading-library read model | `GET /reading-library?format=PASSAGE&partNumber=2&progress=UNFINISHED` | Supplies the selection UI with published cards, learner-specific attempt state, question-family summary, and completion totals. `format` is `PASSAGE` or `FULL_TEST`; `partNumber` is allowed only for `PASSAGE`. |
 | Learner catalogue | list / view passages | `GET /passages`, `GET /passages/{passageId}` | Published content only; catalogue payload is lighter than reader payload. |
 | Practice attempt | start / view / save / flag / submit | `POST /passages/{passageId}/attempts`, `GET /attempts/{attemptId}`, `PUT /attempts/{attemptId}/answers/{questionId}`, `PUT /attempts/{attemptId}/question-states/{questionId}`, `POST /attempts/{attemptId}/submit` | The active-reader response contains the attempt's versioned passage, question-group `taskVariant`/input metadata, candidates, current learner answers, flags, and permitted tools; it contains no answer key, correctness, explanation, or automatic evidence highlight. Answer save and flag state are idempotent ownership/lifecycle-checked updates. |
-| Practice annotations | list / create / delete | `GET/POST /attempts/{attemptId}/annotations`, `DELETE /attempts/{attemptId}/annotations/{annotationId}` | Owner-only personal passage highlights. Creation validates the selected-text anchor against the immutable passage version; all annotation mutations are rejected during an active exam. |
+| Practice highlights | list / create / delete | `GET/POST /api/reading/passages/{passageId}/highlights`, `DELETE /api/reading/passages/{passageId}/highlights/{highlightId}` | Owner-only passage-version highlights persist across attempts. Creation validates the exact selected text and UTF-16 range; overlapping ranges and mutations during an active full test are rejected. |
 | Full test | list / start / view / submit | `GET /reading-tests`, `POST /reading-tests/{testId}/sessions`, `GET /test-sessions/{sessionId}`, `POST /test-sessions/{sessionId}/submit` | Exam response includes server timestamps and `expiresAt`; finalization is idempotent. |
-| Results | attempt / session review | `GET /attempts/{attemptId}/result`, `GET /test-sessions/{sessionId}/result` | Includes server-calculated summary and family breakdown after finalization; correct answers, review status, and explanations appear only then. Personal annotations continue to load only from their owner-only attempt endpoint. |
-| Categories | CRUD | `GET/POST /categories`, `PATCH/DELETE /categories/{categoryId}` | Phase 4; owner derived from principal, never request body. |
-| Vocabulary notes | list/create/detail/update/delete | `GET/POST /vocabulary-notes`, `GET/PATCH/DELETE /vocabulary-notes/{noteId}` | Phase 8; only the authenticated learner's note. List accepts `categoryId`, `reviewStatus`, and paging. A create/update selects a known sense when one is available, stores the selected definition snapshot, optional personal meaning/context, owned category IDs, and review status. |
-| Vocabulary lookup | cached entry/sense search | `GET /vocabulary-entries?query=allocate` | Phase 8; returns only a safe cached projection for sense selection. It does not expose provider credentials or make global vocabulary editable from the learner UI. External lookup refresh is a service concern and reports availability through Problem Details. |
+| Results | attempt / session review | `GET /attempts/{attemptId}/result`, `GET /test-sessions/{sessionId}/result` | Includes server-calculated summary and family breakdown after finalization; correct answers, review status, and explanations appear only then. Passage highlights load from the owner-only passage endpoint and remain independent of the attempt. |
+| Categories | list/create/delete | `GET/POST /api/vocabulary/categories`, `DELETE /api/vocabulary/categories/{categoryId}` | Owner derived from the authenticated principal; foreign category IDs are rejected and database composite FKs enforce ownership. |
+| Vocabulary notes | list/recent/create/status/delete | `GET /api/vocabulary-notes`, `GET /api/vocabulary-notes/recent`, `POST /api/vocabulary-notes`, `PATCH /api/vocabulary-notes/{noteId}/status`, `DELETE /api/vocabulary-notes/{noteId}` | Only the authenticated learner's notes. Creates copy a server-known sense definition into a snapshot and accept only owned category IDs. |
+| Vocabulary lookup | shared cached-entry/provider lookup | `GET /api/vocabulary/lookup?word=allocate` | Checks shared entries and mapped stems first; only cache misses call Merriam-Webster from the backend. Provider key is never sent to the client. |
 | Admin passages | list/create/detail/update/preview/publish | `GET/POST /admin/passages`, `GET/PATCH /admin/passages/{passageId}`, `GET /admin/passages/{passageId}/preview`, `POST /admin/passages/{passageId}/publish` | Admin-only; payloads carry group task variants, safe presentation templates, choice/matching pools, reuse rules, and private answer keys. A passage may publish independently once its own validation passes; `publish` returns `422` with grouped violations. |
 | Admin tests | list/create/detail/update/publish | `GET/POST /admin/reading-tests`, `GET/PATCH /admin/reading-tests/{testId}`, `POST /admin/reading-tests/{testId}/publish` | Requires exactly three valid **published** passages: one each for Parts 1–3 and exactly 40 answerable questions in total. It does not make constituent passage publication automatic. |
 | Admin users | list / activation change | `GET /admin/users`, `PATCH /admin/users/{userId}` | No password hash or security metadata in response. |

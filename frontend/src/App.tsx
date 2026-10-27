@@ -8,9 +8,12 @@ import { ReadingHistory } from "./features/reading/ReadingHistory";
 import { ReadingTest, ReadingTestResult } from "./features/reading/ReadingTestPage";
 import { HomePage } from "./features/home/HomePage";
 import { ReadingDashboard } from "./features/home/ReadingDashboard";
+import { VocabularyPage } from "./features/vocabulary/VocabularyPage";
+import { ProfilePage } from "./features/account/ProfilePage";
+import type { AccountUser } from "./components/AppHeader";
 import { api } from "./api";
 
-type User = { id: number; email: string; displayName: string; role: string };
+type User = AccountUser;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 class ScreenErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -106,13 +109,22 @@ function AuthPage({ register, onSignedIn }: { register: boolean; onSignedIn: (us
 }
 
 function AppRoutes({ user, setUser, setNetworkError }: { user: User | null; setUser: (user: User | null) => void; setNetworkError: (value: boolean) => void }) {
+  async function logout() {
+    try {
+      const response = await api("/auth/sessions/current", "DELETE");
+      if (response.ok || response.status === 401) setUser(null);
+      else setNetworkError(true);
+    } catch { setNetworkError(true); }
+  }
   return <Routes>
     <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage key="login" register={false} onSignedIn={setUser} />} />
     <Route path="/register" element={user ? <Navigate to="/" replace /> : <AuthPage key="register" register onSignedIn={setUser} />} />
-    <Route path="/" element={user ? <ReadingDashboard displayName={user.displayName} isAdmin={user.role === "ADMIN"} onLogout={async () => { try { const r = await api("/auth/sessions/current", "DELETE"); if (r.ok || r.status === 401) setUser(null); else setNetworkError(true); } catch { setNetworkError(true); } }} /> : <HomePage />} />
-    <Route path="/admin" element={!user ? <Navigate to="/login" replace /> : user.role === "ADMIN" ? <AdminPage /> : <Navigate to="/" replace />} />
-    <Route path="/reading" element={<ReadingLibrary authenticated={Boolean(user)} />} />
+    <Route path="/" element={user ? <ReadingDashboard user={user} onLogout={logout} /> : <HomePage />} />
+    <Route path="/admin" element={!user ? <Navigate to="/login" replace /> : user.role === "ADMIN" ? <AdminPage user={user} onLogout={logout} /> : <Navigate to="/" replace />} />
+    <Route path="/profile" element={user ? <ProfilePage user={user} onUserUpdated={setUser} onLogout={logout} /> : <Navigate to="/login" replace />} />
+    <Route path="/reading" element={<ReadingLibrary user={user} onLogout={logout} />} />
     <Route path="/reading/history" element={user ? <ReadingHistory /> : <Navigate to="/login" replace />} />
+    <Route path="/vocabulary" element={user ? <VocabularyPage user={user} onLogout={logout} /> : <Navigate to="/login" replace />} />
     <Route path="/reading/passages/:id" element={user ? <ReadingPassage /> : <Navigate to="/login" replace />} />
     <Route path="/reading/attempts/:id/result" element={user ? <ReadingResult /> : <Navigate to="/login" replace />} />
     <Route path="/reading/tests/:id" element={user ? <ReadingTest /> : <Navigate to="/login" replace />} />

@@ -101,7 +101,7 @@ This is a clarification of the approved recursive matching model, not a replacem
 | Matching frame | root-group association, labelled candidates, and a per-question correct-candidate association | Supports the shared pool shown in the screenshot and avoids duplicating choices. |
 | `content_assets` (only if diagram labels launch) | immutable object key/URL, MIME type, alt text, created timestamp; group references it | A diagram cannot be represented safely by an arbitrary browser URL. |
 | `attempt_question_states` | flagged-for-review state per attempt/question | Confirmed learner feature, including unanswered questions. |
-| `attempt_annotations` | personal user highlight anchored to an attempt's immutable passage version | A highlight is learner-owned, never part of the answer key, and must persist into that attempt's review. |
+| `reading_highlights` | personal user highlight anchored to a published passage version | A highlight is learner-owned, never part of the answer key, and persists when the learner returns to that passage. |
 
 ## Personal highlight rule
 

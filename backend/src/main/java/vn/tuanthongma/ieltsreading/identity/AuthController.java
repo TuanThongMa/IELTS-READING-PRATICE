@@ -36,6 +36,8 @@ class AuthController {
 
     record Credentials(String email, String password) {}
     record Registration(String email, String password, String displayName) {}
+    record ProfileUpdate(String displayName) {}
+    record PasswordChange(String currentPassword, String newPassword) {}
     record Account(long id, String email, String displayName, String role, String passwordHash, boolean active) {}
     record UserResponse(long id, String email, String displayName, String role) {}
 
@@ -99,6 +101,49 @@ class AuthController {
                         row.getString("display_name"), row.getString("role")), Long.parseLong(auth.getName()));
         if (accounts.isEmpty()) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         return accounts.getFirst();
+    }
+
+    @PatchMapping("/me")
+    UserResponse updateProfile(@RequestBody ProfileUpdate input, Authentication auth) {
+        String name = input.displayName() == null ? "" : input.displayName().trim();
+        if (name.isEmpty() || name.length() > 100) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tên hiển thị cần có từ 1 đến 100 ký tự.");
+        }
+        int updated = jdbc.update("""
+                UPDATE users SET display_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND is_active = true
+                """, name, Long.parseLong(auth.getName()));
+        if (updated == 0) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        return me(auth);
+    }
+
+    @PatchMapping("/me/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void changePassword(@RequestBody PasswordChange input, Authentication auth) {
+        String currentPassword = input.currentPassword() == null ? "" : input.currentPassword();
+        String newPassword = input.newPassword() == null ? "" : input.newPassword();
+        if (newPassword.length() < 8 || newPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới chưa đáp ứng yêu cầu.");
+        }
+        long userId = Long.parseLong(auth.getName());
+        var hashes = jdbc.query("SELECT password_hash FROM users WHERE user_id = ? AND is_active = true",
+                (row, index) -> row.getString("password_hash"), userId);
+        if (hashes.isEmpty()) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        String currentHash = hashes.getFirst();
+        if (currentPassword.getBytes(StandardCharsets.UTF_8).length > 72
+                || !passwords.matches(currentPassword, currentHash)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu hiện tại không chính xác.");
+        }
+        if (passwords.matches(newPassword, currentHash)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới cần khác mật khẩu hiện tại.");
+        }
+        int updated = jdbc.update("""
+                UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND password_hash = ? AND is_active = true
+                """, passwords.encode(newPassword), userId, currentHash);
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Mật khẩu vừa được thay đổi. Hãy tải lại trang và thử lại.");
+        }
     }
 
     @DeleteMapping("/auth/sessions/current")

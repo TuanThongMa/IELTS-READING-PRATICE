@@ -1,6 +1,6 @@
 # Data Model Decision Log
 
-Last updated: 2026-10-16
+Last updated: 2026-10-26
 
 This document records confirmed domain decisions. Items marked `Open` are deliberately unresolved and must not be treated as requirements.
 
@@ -362,7 +362,15 @@ Word-limit authoring validation: ONE_WORD accepts at most one word and no digit-
 
 Status: Confirmed
 
-The reference highlighting is learner-created, not automatic answer evidence. `ATTEMPT_ANNOTATIONS` is owned through a single attempt, stores an exact selected-text quote and UTF-16 start/end offsets against that attempt's immutable passage version, and has no scoring effect.
+The reference highlighting is learner-created, not automatic answer evidence. `READING_HIGHLIGHTS` is owned by a user and passage version, stores an exact selected-text quote plus UTF-16 start/end offsets and nearby context, and has no scoring effect. A highlight remains visible when that user leaves and later reopens the same passage version; other learners never see it.
 
-Annotations are allowed in practice and finalized review, unavailable during an active exam, and invisible to every other learner. Automatic answer-evidence highlighting is out of the launch MVP.
+Highlight creation/removal is available in passage practice and review, and unavailable during an active full test. Overlapping ranges are rejected in the service. Automatic answer-evidence highlighting is out of the launch MVP.
+
+Update, 2026-10-26: the project owner approved persistence beyond one attempt. This supersedes the earlier attempt-scoped annotation direction.
+
+## DM-026 — Shared vocabulary cache and search forms
+
+Status: Confirmed
+
+`VOCABULARY_ENTRIES` and its dictionary senses are a shared repository, not user-owned data. The backend checks it before calling Merriam-Webster. `VOCABULARY_ENTRY_SEARCH_TERMS` maps normalized stems/forms returned by the provider to shared entries, so another user searching a cached form can reuse the response without another provider request. Personal notes, categories, and review states remain user-owned. Provider credentials remain backend-only.
 

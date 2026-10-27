@@ -84,9 +84,9 @@ No new table is required. A standalone published passage remains valid with its 
 
 The supplied reference highlight is learner-created. It is not an automatic explanation/evidence marker. Personal highlighting should persist for the same practice attempt and its later review, but has no effect on scoring and is unavailable in an active exam.
 
-Required storage: an additive `attempt_annotations` table holding attempt ownership, a versioned text anchor/range, an exact selected-text quote, and timestamps. The anchor specification must use one documented Unicode indexing convention against the immutable passage version. Automatic answer-evidence highlighting remains out of the launch MVP; finalized review shows an explanation only.
+Required storage: an additive `reading_highlights` table holding user ownership, passage ownership, a text anchor/range, an exact selected-text quote, and timestamps. Highlights persist across practice attempts for that passage version. The anchor uses JavaScript/Java UTF-16 offsets against immutable passage text. Automatic answer-evidence highlighting remains out of the launch MVP; finalized review shows an explanation only.
 
-Decision: automatic evidence highlighting is deferred. The project owner clarified on 2026-10-16 that the supplied reader highlight is learner-created; personal highlighting remains in scope and requires the stated learner-owned annotation model.
+Decision: automatic evidence highlighting is deferred. The project owner clarified on 2026-10-16 that the supplied reader highlight is learner-created; personal highlighting persists at user-and-passage scope. The decision supersedes the original attempt-scoped proposal.
 
 ## Resolved scoring rule
 
@@ -105,4 +105,4 @@ These do not block Phase 2 closure, but belong in the foundation/authoring work:
 
 ## Closure recommendation
 
-All Phase 2 data-readiness gates closed with project-owner approval on 2026-10-16. The matching-frame association, task-variant taxonomy, `attempt_question_states`, and `attempt_annotations` are incorporated into the approved PDM draft. Diagram Label Completion remains explicitly deferred until a content-asset workflow is approved.
+All Phase 2 data-readiness gates closed with project-owner approval on 2026-10-16. The matching-frame association, task-variant taxonomy, and `attempt_question_states` are incorporated into the approved PDM draft. Persistent user-and-passage highlights supersede the original `attempt_annotations` proposal and are implemented in V11. Diagram Label Completion remains explicitly deferred until a content-asset workflow is approved.

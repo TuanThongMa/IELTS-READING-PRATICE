@@ -23,6 +23,7 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ielts_reading}
       DB_USERNAME: ${POSTGRES_USER:-ielts_app}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change-this-local-password}
+      DICTIONARY_MW_API_KEY: ${DICTIONARY_MW_API_KEY:-}
     ports:
       - "8080:8080"
     depends_on:

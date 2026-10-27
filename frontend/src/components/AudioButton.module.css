@@ -1,0 +1,6 @@
+.audioControl { display: inline-flex; align-items: center; vertical-align: middle; }
+.audioElement { display: none; }
+.audioButton { display: grid; place-items: center; width: 28px; height: 28px; padding: 3px; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.audioButton svg { width: 20px; height: 20px; fill: currentColor; }
+.audioButton:hover, .audioButton[aria-pressed="true"] { background: var(--primary-soft); color: var(--primary); }
+.audioButton:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }

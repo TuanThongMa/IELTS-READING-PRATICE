@@ -1,6 +1,9 @@
 package vn.tuanthongma.ieltsreading.content;
 
 import java.security.Principal;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -26,11 +29,12 @@ class ReadingTestPracticeController {
     record Group(long id, String variant, String answerInputMode, String instructions, boolean candidateReuse, List<Choice> candidates, List<Question> questions) {}
     record Passage(long id, int partNumber, String title, String body, int startNumber, List<Group> groups) {}
     record Test(long id, String title, List<Passage> passages) {}
-    record TestSummary(long id, String title, int questionCount, boolean inProgress, int elapsedSeconds, int answeredCount, Long latestSubmittedAttemptId) {}
+    record TestSummary(long id, String title, int questionCount, boolean inProgress, String attemptMode, int elapsedSeconds, int answeredCount, Long latestSubmittedAttemptId) {}
     record Answer(long questionId, String value) {}
-    record Attempt(long id, long testId, String status, int elapsedSeconds, List<Answer> answers) {}
+    record Attempt(long id, long testId, String status, String mode, int elapsedSeconds, List<Answer> answers) {}
+    record StartAttempt(String mode) {}
     record AnswerInput(String value) {}
-    record ClockInput(Integer elapsedSeconds) {}
+    record ClockState(String status, int elapsedSeconds) {}
     record Breakdown(String family, int total, int correct, int incorrect, int skipped) {}
     record ReviewQuestion(long id, int number, String text, String afterBlank, String status, List<Choice> choices,
                           String submittedAnswer, String correctAnswer, List<String> acceptedAnswers, String explanation) {}
@@ -44,16 +48,16 @@ class ReadingTestPracticeController {
         Long userId = principal == null ? null : Long.parseLong(principal.getName());
         return jdbc.query("""
                 SELECT t.reading_test_id, t.title, SUM(tp.question_end_number - tp.question_start_number + 1) AS question_count,
-                       a.reading_test_attempt_id, COALESCE(a.elapsed_seconds, 0) AS elapsed_seconds,
+                       a.reading_test_attempt_id, COALESCE(a.elapsed_seconds, 0) AS elapsed_seconds, a.mode AS attempt_mode,
                        (SELECT COUNT(*) FROM reading_test_answers ra WHERE ra.reading_test_attempt_id = a.reading_test_attempt_id) AS answered_count,
                        (SELECT s.reading_test_attempt_id FROM reading_test_attempts s WHERE s.reading_test_id = t.reading_test_id AND s.user_id = ? AND s.status = 'SUBMITTED' ORDER BY s.submitted_at DESC, s.reading_test_attempt_id DESC LIMIT 1) AS latest_submitted
                 FROM reading_tests t JOIN test_passages tp ON tp.reading_test_id = t.reading_test_id
-                LEFT JOIN reading_test_attempts a ON a.reading_test_id = t.reading_test_id AND a.user_id = ? AND a.status = 'IN_PROGRESS'
+                LEFT JOIN reading_test_attempts a ON a.reading_test_id = t.reading_test_id AND a.user_id = ? AND a.status IN ('IN_PROGRESS', 'PAUSED')
                 WHERE t.status = 'PUBLISHED'
-                GROUP BY t.reading_test_id, t.title, a.reading_test_attempt_id, a.elapsed_seconds
+                GROUP BY t.reading_test_id, t.title, a.reading_test_attempt_id, a.elapsed_seconds, a.mode
                 ORDER BY t.published_at DESC, t.reading_test_id DESC
                 """, (r, n) -> new TestSummary(r.getLong(1), r.getString(2), r.getInt(3), r.getObject(4) != null,
-                r.getInt(5), r.getInt(6), r.getObject(7) == null ? null : r.getLong(7)), userId, userId);
+                r.getString(6), r.getInt(5), r.getInt(7), r.getObject(8) == null ? null : r.getLong(8)), userId, userId);
     }
 
     @GetMapping("/{testId}")
@@ -72,35 +76,65 @@ class ReadingTestPracticeController {
 
     @PostMapping("/{testId}/attempts")
     @Transactional
-    Attempt start(@PathVariable long testId, Principal principal) {
+    Attempt start(@PathVariable long testId, @RequestBody(required = false) StartAttempt input, Principal principal) {
         long userId = Long.parseLong(principal.getName());
+        String requestedMode = input == null || input.mode() == null ? "PRACTICE" : input.mode();
+        if (!List.of("PRACTICE", "REAL_TEST").contains(requestedMode)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chế độ làm bài không hợp lệ.");
         jdbc.queryForObject("SELECT user_id FROM users WHERE user_id = ? FOR UPDATE", Long.class, userId);
         Integer valid = jdbc.queryForObject("SELECT COUNT(*) FROM reading_tests WHERE reading_test_id = ? AND status = 'PUBLISHED'", Integer.class, testId);
         if (valid == null || valid == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        List<Long> ids = jdbc.queryForList("SELECT reading_test_attempt_id FROM reading_test_attempts WHERE user_id = ? AND reading_test_id = ? AND status = 'IN_PROGRESS'", Long.class, userId, testId);
+        List<Long> ids = jdbc.queryForList("SELECT reading_test_attempt_id FROM reading_test_attempts WHERE user_id = ? AND reading_test_id = ? AND status IN ('IN_PROGRESS', 'PAUSED') ORDER BY CASE status WHEN 'IN_PROGRESS' THEN 0 ELSE 1 END, reading_test_attempt_id DESC LIMIT 1", Long.class, userId, testId);
         long id;
-        if (!ids.isEmpty()) id = ids.getFirst();
+        if (!ids.isEmpty()) {
+            id = ids.getFirst();
+            AttemptHeader existing = lockedAttempt(id, userId);
+            if ("PAUSED".equals(existing.status())) {
+                jdbc.update("UPDATE reading_test_attempts SET status = 'IN_PROGRESS', active_marker = true, clock_started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE reading_test_attempt_id = ?", id);
+            } else {
+                accrue(existing, true);
+            }
+        }
         else {
             var keys = new GeneratedKeyHolder();
-            jdbc.update(connection -> { var statement = connection.prepareStatement("INSERT INTO reading_test_attempts (user_id, reading_test_id, active_marker) VALUES (?, ?, true)", new String[]{"reading_test_attempt_id"}); statement.setLong(1, userId); statement.setLong(2, testId); return statement; }, keys);
+            jdbc.update(connection -> { var statement = connection.prepareStatement("INSERT INTO reading_test_attempts (user_id, reading_test_id, mode, active_marker, clock_started_at) VALUES (?, ?, ?, true, CURRENT_TIMESTAMP)", new String[]{"reading_test_attempt_id"}); statement.setLong(1, userId); statement.setLong(2, testId); statement.setString(3, requestedMode); return statement; }, keys);
             if (keys.getKey() == null) throw new IllegalStateException("No attempt key");
             id = keys.getKey().longValue();
         }
         return attempt(id, userId);
     }
 
-    @PutMapping("/attempts/{attemptId}/heartbeat")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PutMapping("/attempts/{attemptId}/pause")
     @Transactional
-    void heartbeat(@PathVariable long attemptId, @RequestBody ClockInput input, Principal principal) { saveClock(attemptId, input, Long.parseLong(principal.getName()), false); }
+    Attempt pause(@PathVariable long attemptId, Principal principal) {
+        long userId = Long.parseLong(principal.getName());
+        AttemptHeader current = lockedAttempt(attemptId, userId);
+        if ("SUBMITTED".equals(current.status())) return attempt(attemptId, userId);
+        if (!"IN_PROGRESS".equals(current.status())) throw new ResponseStatusException(HttpStatus.CONFLICT);
+        AttemptHeader updated = accrue(current, false);
+        if ("SUBMITTED".equals(updated.status())) return attempt(attemptId, userId);
+        jdbc.update("UPDATE reading_test_attempts SET status = 'PAUSED', active_marker = NULL, clock_started_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE reading_test_attempt_id = ?", attemptId);
+        return attempt(attemptId, userId);
+    }
+
+    @PutMapping("/attempts/{attemptId}/heartbeat")
+    @Transactional
+    ClockState heartbeat(@PathVariable long attemptId, @RequestParam(defaultValue = "false") boolean recovered, Principal principal) {
+        AttemptHeader current = lockedAttempt(attemptId, Long.parseLong(principal.getName()));
+        if ("SUBMITTED".equals(current.status())) return new ClockState(current.status(), current.elapsedSeconds());
+        if (!"IN_PROGRESS".equals(current.status())) throw new ResponseStatusException(HttpStatus.CONFLICT);
+        AttemptHeader updated = accrue(current, recovered);
+        return new ClockState(updated.status(), updated.elapsedSeconds());
+    }
 
     @PutMapping("/attempts/{attemptId}/answers/{questionId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Transactional
+    @Transactional(noRollbackFor = ResponseStatusException.class)
     void saveAnswer(@PathVariable long attemptId, @PathVariable long questionId, @RequestBody AnswerInput input, Principal principal) {
         long userId = Long.parseLong(principal.getName());
-        List<AttemptHeader> attempts = lockedAttempt(attemptId, userId);
-        AttemptHeader attempt = attempts.getFirst();
+        AttemptHeader attempt = lockedAttempt(attemptId, userId);
+        if (!"IN_PROGRESS".equals(attempt.status())) throw new ResponseStatusException(HttpStatus.CONFLICT);
+        attempt = accrue(attempt, false);
+        if (!"IN_PROGRESS".equals(attempt.status())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Thời gian thi đã hết.");
         if (input == null || input.value() == null || input.value().length() > 1000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đáp án không hợp lệ.");
         List<String> modes = jdbc.queryForList("""
                 SELECT g.answer_input_mode FROM reading_test_attempts a JOIN test_passages tp ON tp.reading_test_id = a.reading_test_id
@@ -125,10 +159,15 @@ class ReadingTestPracticeController {
 
     @PostMapping("/attempts/{attemptId}/submit")
     @Transactional
-    Attempt submit(@PathVariable long attemptId, @RequestBody ClockInput input, Principal principal) {
+    Attempt submit(@PathVariable long attemptId, Principal principal) {
         long userId = Long.parseLong(principal.getName());
-        saveClock(attemptId, input, userId, true);
-        jdbc.update("UPDATE reading_test_attempts SET status = 'SUBMITTED', active_marker = NULL, submitted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE reading_test_attempt_id = ? AND user_id = ? AND status = 'IN_PROGRESS'", attemptId, userId);
+        AttemptHeader current = lockedAttempt(attemptId, userId);
+        if ("SUBMITTED".equals(current.status())) return attempt(attemptId, userId);
+        if (!"IN_PROGRESS".equals(current.status())) throw new ResponseStatusException(HttpStatus.CONFLICT);
+        AttemptHeader updated = accrue(current, false);
+        if (!"SUBMITTED".equals(updated.status())) {
+            jdbc.update("UPDATE reading_test_attempts SET status = 'SUBMITTED', active_marker = NULL, clock_started_at = NULL, submitted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE reading_test_attempt_id = ?", attemptId);
+        }
         return attempt(attemptId, userId);
     }
 
@@ -137,9 +176,9 @@ class ReadingTestPracticeController {
     Result result(@PathVariable long attemptId, Principal principal) {
         long userId = Long.parseLong(principal.getName());
         List<AttemptHeader> headers = jdbc.query("""
-                SELECT a.reading_test_attempt_id, a.reading_test_id, a.status, a.elapsed_seconds FROM reading_test_attempts a
+                SELECT a.reading_test_attempt_id, a.reading_test_id, a.status, a.mode, a.elapsed_seconds, a.clock_started_at FROM reading_test_attempts a
                 WHERE a.reading_test_attempt_id = ? AND a.user_id = ?
-                """, (r, n) -> new AttemptHeader(r.getLong(1), r.getLong(2), r.getString(3), r.getInt(4)), attemptId, userId);
+                """, (r, n) -> new AttemptHeader(r.getLong(1), r.getLong(2), r.getString(3), r.getString(4), r.getInt(5), r.getTimestamp(6)), attemptId, userId);
         if (headers.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         AttemptHeader header = headers.getFirst();
         if (!"SUBMITTED".equals(header.status())) throw new ResponseStatusException(HttpStatus.CONFLICT);
@@ -270,16 +309,44 @@ class ReadingTestPracticeController {
                 """, r -> { long id = r.getLong(1), qid = r.getLong(6); Group group = result.computeIfAbsent(id, k -> new Group(k, get(r,2), get(r,3), get(r,4), bool(r,5), candidates.getOrDefault(k, List.of()), new ArrayList<>())); group.questions().add(new Question(qid, offset + r.getInt(7), get(r,8), get(r,9), choices.getOrDefault(qid, List.of()))); }, passageId);
         return List.copyOf(result.values());
     }
-    private void saveClock(long attemptId, ClockInput input, long userId, boolean submitting) {
-        int seconds = input == null || input.elapsedSeconds() == null ? 0 : input.elapsedSeconds();
-        if (seconds < 0 || seconds > DURATION_SECONDS) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thời gian không hợp lệ.");
-        List<AttemptHeader> attempts = lockedAttempt(attemptId, userId);
-        if (!"IN_PROGRESS".equals(attempts.getFirst().status()) && !submitting) throw new ResponseStatusException(HttpStatus.CONFLICT);
-        jdbc.update("UPDATE reading_test_attempts SET elapsed_seconds = GREATEST(elapsed_seconds, ?), updated_at = CURRENT_TIMESTAMP WHERE reading_test_attempt_id = ?", seconds, attemptId);
+    private AttemptHeader accrue(AttemptHeader current, boolean recovered) {
+        if (!"IN_PROGRESS".equals(current.status())) return current;
+        Instant now = Instant.now();
+        Instant started = current.clockStartedAt() == null ? now : current.clockStartedAt().toInstant();
+        long delta = Math.max(0, Duration.between(started, now).getSeconds());
+        if (recovered) delta = Math.min(15, delta);
+        long total = (long) current.elapsedSeconds() + delta;
+        boolean expired = "REAL_TEST".equals(current.mode()) && total >= DURATION_SECONDS;
+        int elapsedSeconds = (int) Math.min(expired ? DURATION_SECONDS : Integer.MAX_VALUE, total);
+        String status = expired ? "SUBMITTED" : "IN_PROGRESS";
+        jdbc.update("""
+                UPDATE reading_test_attempts
+                SET elapsed_seconds = ?, status = ?, active_marker = ?, clock_started_at = ?,
+                    submitted_at = CASE WHEN ? THEN COALESCE(submitted_at, CURRENT_TIMESTAMP) ELSE submitted_at END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE reading_test_attempt_id = ?
+                """, elapsedSeconds, status, expired ? null : true, expired ? null : Timestamp.from(now), expired, current.id());
+        return new AttemptHeader(current.id(), current.testId(), status, current.mode(), elapsedSeconds,
+                expired ? null : Timestamp.from(now));
     }
-    private List<AttemptHeader> lockedAttempt(long attemptId, long userId) { List<AttemptHeader> found = jdbc.query("SELECT reading_test_attempt_id,reading_test_id,status,elapsed_seconds FROM reading_test_attempts WHERE reading_test_attempt_id=? AND user_id=? FOR UPDATE", (r,n) -> new AttemptHeader(r.getLong(1),r.getLong(2),r.getString(3),r.getInt(4)), attemptId,userId); if (found.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND); if (!"IN_PROGRESS".equals(found.getFirst().status())) throw new ResponseStatusException(HttpStatus.CONFLICT); return found; }
-    private Attempt attempt(long id, long userId) { List<AttemptHeader> headers = jdbc.query("SELECT reading_test_attempt_id,reading_test_id,status,elapsed_seconds FROM reading_test_attempts WHERE reading_test_attempt_id=? AND user_id=?", (r,n) -> new AttemptHeader(r.getLong(1),r.getLong(2),r.getString(3),r.getInt(4)),id,userId); if(headers.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND); AttemptHeader h=headers.getFirst(); return new Attempt(h.id(),h.testId(),h.status(),h.elapsedSeconds(),jdbc.query("SELECT passage_question_id,COALESCE(submitted_raw_value,submitted_value) FROM reading_test_answers WHERE reading_test_attempt_id=?",(r,n)->new Answer(r.getLong(1),r.getString(2)),id)); }
-    private record AttemptHeader(long id, long testId, String status, int elapsedSeconds) {}
+
+    private AttemptHeader lockedAttempt(long attemptId, long userId) {
+        List<AttemptHeader> found = jdbc.query("SELECT reading_test_attempt_id, reading_test_id, status, mode, elapsed_seconds, clock_started_at FROM reading_test_attempts WHERE reading_test_attempt_id = ? AND user_id = ? FOR UPDATE",
+                (r, n) -> new AttemptHeader(r.getLong(1), r.getLong(2), r.getString(3), r.getString(4), r.getInt(5), r.getTimestamp(6)), attemptId, userId);
+        if (found.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        return found.getFirst();
+    }
+
+    private Attempt attempt(long id, long userId) {
+        AttemptHeader header = jdbc.query("SELECT reading_test_attempt_id, reading_test_id, status, mode, elapsed_seconds, clock_started_at FROM reading_test_attempts WHERE reading_test_attempt_id = ? AND user_id = ?",
+                (r, n) -> new AttemptHeader(r.getLong(1), r.getLong(2), r.getString(3), r.getString(4), r.getInt(5), r.getTimestamp(6)), id, userId)
+                .stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        List<Answer> answers = jdbc.query("SELECT passage_question_id, COALESCE(submitted_raw_value, submitted_value) FROM reading_test_answers WHERE reading_test_attempt_id = ?",
+                (r, n) -> new Answer(r.getLong(1), r.getString(2)), id);
+        return new Attempt(header.id(), header.testId(), header.status(), header.mode(), header.elapsedSeconds(), answers);
+    }
+
+    private record AttemptHeader(long id, long testId, String status, String mode, int elapsedSeconds, Timestamp clockStartedAt) {}
     private record QuestionScore(String family, String answer, String expected) {}
     private static String normalize(String value) { return Normalizer.normalize(value, Normalizer.Form.NFC).strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT); }
     private static String band(int score) { return score <= 10 ? "Below 4.0" : score <= 12 ? "4.0" : score <= 15 ? "4.5" : score <= 17 ? "5.0" : score <= 22 ? "5.5" : score <= 25 ? "6.0" : score <= 29 ? "6.5" : score <= 31 ? "7.0" : score <= 34 ? "7.5" : score <= 36 ? "8.0" : score <= 38 ? "8.5" : "9.0"; }

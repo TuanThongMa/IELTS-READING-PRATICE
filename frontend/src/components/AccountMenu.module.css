@@ -1,0 +1,22 @@
+.root { position: relative; z-index: 20; flex: none; }
+.trigger { display: inline-flex; min-height: 42px; align-items: center; gap: 9px; padding: 4px 10px 4px 5px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.trigger:hover, .trigger[aria-expanded="true"] { border-color: var(--primary); }
+.avatar { display: grid; width: 32px; height: 32px; flex: none; place-items: center; border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-size: 14px; font-weight: 700; }
+.name { max-width: 180px; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.chevron, .chevronOpen { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; transition: transform .15s ease; }
+.chevronOpen { transform: rotate(180deg); }
+.popover { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: 232px; padding: 7px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 30px rgb(30 41 59 / 14%); }
+.identity { display: grid; gap: 3px; padding: 10px 11px 12px; }
+.identity strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.identity span { color: var(--text-secondary); font-size: 11px; }
+.divider { height: 1px; margin: 3px 4px; background: var(--border); }
+.popover a, .popover > button { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0 11px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; text-decoration: none; cursor: pointer; }
+.popover a:hover, .popover > button:hover { background: var(--primary-soft); color: var(--primary); }
+@media (max-width: 520px) {
+  .trigger { min-height: 38px; gap: 6px; padding-right: 7px; }
+  .avatar { width: 28px; height: 28px; }
+  .name { max-width: 92px; font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chevron, .chevronOpen { transition: none; }
+}

@@ -23,3 +23,7 @@ management:
     health:
       probes:
         enabled: true
+
+dictionary:
+  merriam-webster:
+    api-key: ${DICTIONARY_MW_API_KEY:}

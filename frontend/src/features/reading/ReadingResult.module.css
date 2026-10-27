@@ -40,4 +40,5 @@
 .explanation p { margin: 8px 0; }
 button.navCORRECT { border-color: var(--success); color: var(--success); }
 button.navINCORRECT { border-color: var(--danger); color: var(--danger); }
+button.navActive { outline: 2px solid var(--primary); outline-offset: 1px; box-shadow: 0 0 0 3px var(--primary-soft); font-weight: 800; }
 @media (max-width: 600px) { .page { padding: 24px 16px 60px; } .summary { flex-direction: column; align-items: stretch; padding: 24px; } .ring { align-self: center; } .totals { width: 100%; max-width: none; } .breakdown th, .breakdown td { padding: 12px; } }

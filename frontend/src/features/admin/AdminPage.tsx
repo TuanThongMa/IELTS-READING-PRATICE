@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useBlocker } from "react-router-dom";
+import { useBlocker } from "react-router-dom";
 import { api } from "../../api";
+import { AppHeader, type AccountUser } from "../../components/AppHeader";
 import styles from "./AdminPage.module.css";
 import { QuestionGroups } from "./QuestionGroups";
 import { ReadingTests } from "./ReadingTests";
@@ -9,7 +10,7 @@ type Passage = { id: number; title: string; partNumber: number; status: string }
 type PassageDetail = Passage & { body: string };
 type PublicationCheck = { ready: boolean; issues: string[] };
 
-export function AdminPage() {
+export function AdminPage({ user, onLogout }: { user: AccountUser; onLogout: () => void | Promise<void> }) {
   const [passages, setPassages] = useState<Passage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -117,7 +118,7 @@ export function AdminPage() {
   }
 
   return <div className={styles.page}>
-    <header className={styles.header}><Link to="/" className={styles.brand}><span>R</span> IELTS Reading Practice</Link><Link to="/">Về trang chính</Link></header>
+    <AppHeader active="admin" user={user} onLogout={onLogout} />
     <main className={styles.main}>
       <div className={styles.heading}><div><h1>Quản trị Reading</h1><p>Quản lý passage và ghép full test cho học viên.</p></div>{!creating && !editing && !managingTests && <div className={styles.headingActions}><button className={styles.secondary} disabled={opening} onClick={() => { setManagingTests(true); setError(""); setNotice(""); }}>Quản lý full test</button><button className={styles.primary} disabled={opening} onClick={() => { setCreating(true); setError(""); setNotice(""); }}>+ Tạo passage</button></div>}</div>
       {notice && <p className={styles.notice} role="status">{notice}</p>}

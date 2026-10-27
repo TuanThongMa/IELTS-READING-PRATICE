@@ -68,8 +68,24 @@ Tài liệu tích lũy các kiến thức rút ra trong quá trình xây dựng 
 
 ## 11. Dashboard hoạt động Reading và thời lượng attempt
 
-**Đã triển khai:** Dashboard chỉ tổng hợp các attempt `SUBMITTED` thuộc user đang đăng nhập. Lịch năm và bảng 7 ngày dùng ngày theo `Asia/Ho_Chi_Minh`; thời lượng passage lẻ được cộng dồn và gửi heartbeat mỗi 15 giây, khi đổi tab trình duyệt và lúc nộp. Full test dùng trường `elapsed_seconds` sẵn có. Query chỉ lấy timestamp và thời lượng trong khoảng năm hiện tại hoặc đầu cửa sổ 7 ngày nếu cửa sổ vượt qua ngày 1/1; Java quy đổi timestamp sang ngày địa phương và dựng các ngày rỗng cho UI. Các attempt passage đã nộp trước migration có thời lượng mặc định 0 vì hệ thống chưa từng lưu bộ đếm cho chúng.
+**Đã triển khai:** Dashboard chỉ tổng hợp các attempt `SUBMITTED` thuộc user đang đăng nhập. Lịch năm và bảng 7 ngày dùng ngày theo `Asia/Ho_Chi_Minh`; thời lượng passage lẻ được cộng dồn và gửi heartbeat mỗi 15 giây, khi đổi tab trình duyệt và lúc nộp. Full test lưu thời lượng đã xác nhận ở `elapsed_seconds`, cùng mốc `clock_started_at` cho đoạn đồng hồ đang chạy. Query chỉ lấy timestamp và thời lượng trong khoảng năm hiện tại hoặc đầu cửa sổ 7 ngày nếu cửa sổ vượt qua ngày 1/1; Java quy đổi timestamp sang ngày địa phương và dựng các ngày rỗng cho UI. Các attempt passage đã nộp trước migration có thời lượng mặc định 0 vì hệ thống chưa từng lưu bộ đếm cho chúng.
 
 **Điểm phỏng vấn:** Không nên suy thời gian học bằng `submitted_at - started_at`: khoảng đó có thể bao gồm thời gian người học bỏ dở. Lưu bộ đếm đã chạy giúp đo thời lượng gần với trải nghiệm hơn; checkpoint định kỳ giới hạn dữ liệu mất khi đóng đột ngột, nhưng có thể mất tối đa khoảng một chu kỳ khi không kịp gửi. Dashboard phải lọc theo `user_id` ở backend và chỉ tính trạng thái đã nộp; ẩn nút ở frontend không phải kiểm soát truy cập.
 
 **Điểm phỏng vấn:** Lưu timestamp tuyệt đối có múi giờ, nhưng nhóm theo ngày tại múi giờ nghiệp vụ. Truy vấn dùng khoảng nửa mở `[đầu năm, ngày mai)` để tránh lỗi ranh giới cuối ngày; composite index `(user_id, status, submitted_at)` khớp thứ tự hai bộ lọc bằng nhau rồi điều kiện khoảng thời gian. Index tăng chi phí ghi và dung lượng, nên cần xem query plan nếu lượng attempt lớn lên.
+
+## 12. Hồ sơ cá nhân và đổi mật khẩu
+
+**Đã triển khai:** `PATCH /me` chỉ nhận tên hiển thị; email và role không được cập nhật từ form hồ sơ. `PATCH /me/password` yêu cầu mật khẩu hiện tại, kiểm tra chính sách mật khẩu mới, băm bằng `PasswordEncoder`, rồi chỉ ghi hash mới vào `users`. API không trả password hash. Session hiện tại tiếp tục có hiệu lực sau khi đổi mật khẩu; ứng dụng hiện chưa có kho session tập trung để thu hồi các session khác của cùng tài khoản.
+
+**Điểm phỏng vấn:** Không tin user ID do client gửi cho thao tác hồ sơ; lấy ID từ `Authentication` trong Spring Security để chỉ cập nhật tài khoản đang đăng nhập. Giới hạn API ở những trường được phép sửa cũng giúp ngăn mass assignment, ví dụ người dùng tự gửi `role: ADMIN`.
+
+**Điểm phỏng vấn:** Khi đổi mật khẩu, xác minh mật khẩu hiện tại trước khi cập nhật. Câu `UPDATE ... WHERE user_id = ? AND password_hash = ?` đóng vai trò compare-and-set: nếu hash đã đổi bởi một yêu cầu đồng thời, cập nhật thứ hai không ghi đè mù mà trả xung đột. Mật khẩu mới được băm; mật khẩu thô chỉ tồn tại tạm trong request và không được log hay lưu.
+
+## 13. Đồng hồ server-side cho full test
+
+**Đã triển khai:** `reading_test_attempts.clock_started_at` lưu mốc của đoạn thời gian đang chạy; backend cộng thời gian theo đồng hồ server khi nhận heartbeat, tạm dừng, lưu đáp án hoặc nộp bài. Client không còn được quyền gửi `elapsedSeconds` để quyết định thời gian đã làm. Full test ở chế độ thi thật tự chuyển sang `SUBMITTED` khi chạm 3.600 giây và backend từ chối lưu đáp án sau hạn; chế độ luyện tập đếm tăng và không bị giới hạn 60 phút. Khi đóng đột ngột hoặc kết nối lại, backend chỉ tính tối đa 15 giây chưa checkpoint; sự kiện `online` đồng bộ lại đồng hồ. Chuyển tab khi trang vẫn mở không tạm dừng đồng hồ.
+
+**Điểm phỏng vấn:** Thời gian do trình duyệt gửi lên là dữ liệu không đáng tin vì người dùng có thể sửa request. Lưu mốc thời gian đang chạy ở backend giúp thời lượng được tính từ nguồn tin cậy. `SELECT ... FOR UPDATE` khóa attempt trong lúc cập nhật để heartbeat, lưu đáp án, pause và submit không ghi đè trạng thái của nhau. Khi cập nhật phát hiện hết giờ trong lúc lưu đáp án, trạng thái nộp được commit dù API trả xung đột; nếu transaction rollback toàn bộ, attempt có thể bị kẹt ở `IN_PROGRESS`.
+
+**Đánh đổi:** Backend thực thi hết giờ ở request tiếp theo; khi trang đang mở, frontend gửi yêu cầu nộp ngay khi bộ đếm chạm 60 phút. Nếu mất mạng, thời gian offline không được cộng sau khi kết nối lại, ngoại trừ tối đa một checkpoint 15 giây. Đây là giới hạn thực tế của bộ đếm không có kết nối liên tục và không dùng tác vụ nền.
