@@ -167,6 +167,8 @@ The database stores the number of correct answers. The Spring Boot backend conve
 
 The current system scope is IELTS Academic Reading only. The backend therefore applies the Academic Reading raw-score-to-band mapping. No test-type discriminator is required for the first release, and no requirement to persist the derived band score has been confirmed.
 
+Update, 2026-10-28: the project owner confirmed the versioned conversion reference and result snapshot described in DM-019. Migration V16 now stores ranges in PostgreSQL and records the table version, raw correct count, answered count, and derived band on each submitted full-test attempt. The earlier statement that persistence was unconfirmed is superseded.
+
 ## DM-012A — Full-test mode and lifecycle
 
 Status: Confirmed
@@ -356,6 +358,8 @@ Each blank question has one canonical answer; scoring normalizes Unicode/case/wh
 
 Update, 2026-10-23: the project owner approved replacing the one-answer policy with a primary answer plus optional, explicitly authored alternatives. Normalization is Unicode NFC, case-insensitive and whitespace-collapsed; the service rejects equivalent duplicates. Sentence Completion groups store a selected word-limit mode and derive the displayed instruction from that mode. The later learner-scoring implementation must enforce the chosen limit and compare against all accepted answers; authoring alone does not implement scoring. Existing OPTION data is unchanged. Admin evidence is ordinary explanation text for MVP; linked passage anchors remain future work and are distinct from learner highlights.
 
+Update, 2026-10-28: learner answer endpoints now enforce the group's stored word limit for typed completion answers in both passage practice and full tests. Invalid answers are rejected by the backend; the frontend shows the same limit feedback and prevents submission until corrected. Scoring rechecks the limit and accepts the canonical answer or an explicitly authored alternative.
+
 Word-limit authoring validation: ONE_WORD accepts at most one word and no digit-number; TWO_WORDS accepts at most two words and no digit-number; TWO_WORDS_AND_ONE_NUMBER accepts at most two words and at most one digit-number. A hyphenated alphabetic token counts as one word; digit-only integers count as numbers, while number words such as "three" count as words. Decimal numbers, dates, currency symbols and other unclassified formats are rejected as unsupported, not graded as incorrect. The same policy must be evaluated again before learner grading, especially for unsupported legitimate IELTS answers.
 
 ## DM-025 — Personal passage annotations
@@ -373,4 +377,17 @@ Update, 2026-10-26: the project owner approved persistence beyond one attempt. T
 Status: Confirmed
 
 `VOCABULARY_ENTRIES` and its dictionary senses are a shared repository, not user-owned data. The backend checks it before calling Merriam-Webster. `VOCABULARY_ENTRY_SEARCH_TERMS` maps normalized stems/forms returned by the provider to shared entries, so another user searching a cached form can reuse the response without another provider request. Personal notes, categories, and review states remain user-owned. Provider credentials remain backend-only.
+
+## DM-027 — Additional IELTS Reading task types
+
+Status: Confirmed and implemented; manual end-to-end validation remains.
+
+- The persisted question families remain `OPTION`, `BLANK`, and `MATCHING`; the public IELTS task variant does not create a new storage family.
+- Multiple Choice (Multiple Answers) has one shared option bank and one stored answer label per numbered question box. The group correct key is a set whose size equals the number of boxes; scoring accepts either order and credits each correct label no more than once.
+- Table Completion and Flow-chart Completion use `question_groups.presentation_template` as versioned JSON. Static text and blank references are separate typed parts; a blank points to a zero-based index in the ordered group questions. Therefore passage-wide question renumbering does not alter template references.
+- The API rejects unsupported template versions, invalid or repeated indexes, missing blanks, and inconsistent table row widths. The UI renders author text as text rather than interpreting it as HTML.
+- Short Answer reuses `blank_questions` and `blank_answer_variants`, so existing answer normalization and accepted alternatives remain consistent with other typed completion tasks.
+- `THREE_WORDS_AND_ONE_NUMBER` allows up to three alphabetic/hyphenated word tokens and one digit-only integer. The frontend gives immediate feedback; the backend revalidates on answer save and scoring.
+- One answer box continues to count as one question for the passage's question range and the 40-question full-test total.
+- Diagram Label Completion remains deferred because its durable image source, alt text, and image-reference rules are not yet agreed.
 

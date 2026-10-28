@@ -6,7 +6,7 @@ Scope: Map official IELTS Academic Reading task types to the approved three-fami
 
 ## Evidence reviewed
 
-Implementation update (2026-10-23): the approved Sentence Completion policy now allows explicitly authored answer alternatives and stores a selected word-limit mode. The earlier one-answer and instruction-only statements below describe the superseded launch decision, not the current Sentence Completion design. Enforcement during learner scoring remains future work.
+Implementation update (2026-10-28): Sentence Completion stores explicitly authored answer alternatives and a selected word-limit mode. Learner save endpoints enforce the selected mode, grading rechecks it and compares against all accepted answers, and the learner UI gives inline feedback. Older one-answer or instruction-only statements below describe superseded launch decisions.
 
 The official IELTS Academic format specifies three sections, 40 questions, and 60 minutes. It lists multiple choice; True/False/Not Given; Yes/No/Not Given; matching information, headings, features, and sentence endings; sentence completion; summary/note/table/flow-chart completion; diagram label completion; and short answer questions. It also states that multiple choice can require more than one answer, matching rules can permit reuse only when stated, and text-entry tasks enforce an instruction-level word limit.
 
@@ -40,7 +40,7 @@ The system must not create a table for every public IELTS label. Instead, retain
 | Matching headings | `MATCHING` | `MATCHING_HEADINGS` | Paragraph/section prompts map to a shared heading pool; reuse is disabled. | Include. |
 | Matching features | `MATCHING` | `MATCHING_FEATURES` | Prompt statements map to people/things/features. The supplied screenshot is this form. | Include. |
 | Matching sentence endings | `MATCHING` | `MATCHING_SENTENCE_ENDINGS` | Sentence beginnings map to a shared ending pool; reuse is disabled. | Include. |
-| Sentence completion | `BLANK` | `SENTENCE_COMPLETION` | One short typed response per question; any word limit is displayed in the shared instructions, not separately enforced in the launch MVP. | Include. |
+| Sentence completion | `BLANK` | `SENTENCE_COMPLETION` | One typed response per question; the selected group word limit is enforced by the API before saving and checked again during scoring. | Include. |
 | Summary / note completion from text | `BLANK` | `SUMMARY_COMPLETION` or `NOTE_COMPLETION` | A safe group presentation template renders labelled blanks; each remains a normal scored question. | Include. |
 | Table / flow-chart completion | `BLANK` | `TABLE_COMPLETION` or `FLOW_CHART_COMPLETION` | The same blank answers appear inside a semantic table/ordered flow template. | Include after the template renderer is defined. |
 | Summary/table/flow-chart from a word list | `BLANK` | one of the completion variants plus `CHOICE_BANK` input | A shared controlled word bank is shown while the answer remains a blank-family answer. Reuse rule is author-configured. | Include after shared choice-pool reuse is implemented. |

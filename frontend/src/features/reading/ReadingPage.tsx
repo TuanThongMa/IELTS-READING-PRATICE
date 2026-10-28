@@ -3,6 +3,8 @@ import { Link, useBlocker, useNavigate, useParams, useSearchParams } from "react
 import { api } from "../../api";
 import { AudioButton } from "../../components/AudioButton";
 import { AppHeader, type AccountUser } from "../../components/AppHeader";
+import { answerErrorsFor, answerWordLimitError, type WordLimitMode } from "./answerTextPolicy";
+import { supportsTaskContent, TaskQuestionInputs, TaskQuestionReview, type TaskTemplate } from "./ReadingTaskContent";
 import styles from "./ReadingPage.module.css";
 
 type ReadingMode = "PRACTICE" | "REAL_TEST";
@@ -11,19 +13,20 @@ type Summary = { id: number; title: string; partNumber: number; questionCount: n
 type TestSummary = { id: number; title: string; questionCount: number; inProgress: boolean; attemptMode: ReadingMode | null; elapsedSeconds: number; answeredCount: number; latestSubmittedAttemptId: number | null };
 type Choice = { label: string; text: string };
 type Question = { id: number; number: number; text: string; afterBlank: string | null; choices: Choice[] };
-type Group = { id: number; variant: string; answerInputMode: string; instructions: string; candidateReuse: boolean; candidates: Choice[]; questions: Question[] };
+type Group = { id: number; variant: string; answerInputMode: string; instructions: string; wordLimitMode: WordLimitMode; candidateReuse: boolean; candidates: Choice[]; presentationTemplate: TaskTemplate | null; questions: Question[] };
 type Passage = { id: number; title: string; body: string; partNumber: number; groups: Group[] };
 type Attempt = { id: number; passageId: number; status: string; mode: ReadingMode; elapsedSeconds: number; answers: { questionId: number; value: string }[] };
 type Answers = Record<number, string>;
 type SaveState = "saved" | "saving" | "failed";
 type Highlight = { id: number; startOffset: number; endOffset: number; selectedText: string; prefixContext: string; suffixContext: string };
-type TextSelectionMenu = { start: number; end: number; text: string; context: string; left: number; top: number };
+type TextSelectionMenu = { start: number; end: number; text: string; context: string; left: number; top: number; width: number; maxHeight: number };
 type LookupSense = { id: number; partOfSpeech: string; phoneticText: string | null; audioUrl: string | null; definition: string; example: string | null; relatedWords: { word: string; relationType: string }[] };
 type LookupEntry = { id: number; word: string; sourceUrl: string; senses: LookupSense[] };
 type VocabularyCategory = { id: number; name: string; noteCount: number };
 
 export function PassageText({ body, passageId, allowDictionary = true }: { body: string; passageId: number; allowDictionary?: boolean }) {
   const root = useRef<HTMLDivElement>(null);
+  const selectionRange = useRef<Range | null>(null);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [menu, setMenu] = useState<TextSelectionMenu | null>(null);
   const [entries, setEntries] = useState<LookupEntry[]>([]);
@@ -64,6 +67,22 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
     return () => { active = false; };
   }, [passageId]);
 
+  useEffect(() => {
+    if (!menu) return;
+    const pane = root.current?.closest(`.${styles.pane}`);
+    const reposition = () => {
+      const rect = selectionRange.current?.getBoundingClientRect();
+      if (!rect || (!rect.width && !rect.height)) return;
+      setMenu(current => current ? { ...current, ...selectionToolsPosition(rect) } : current);
+    };
+    pane?.addEventListener("scroll", reposition);
+    window.addEventListener("resize", reposition);
+    return () => {
+      pane?.removeEventListener("scroll", reposition);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [menu?.start, menu?.end]);
+
   function locateSelection(event: MouseEvent<HTMLDivElement> | TouchEvent<HTMLDivElement>) {
     const selection = window.getSelection();
     const container = root.current;
@@ -85,12 +104,9 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
     const lineEnd = foundEnd < 0 ? body.length : foundEnd;
     const context = body.slice(lineStart, lineEnd).trim();
     const rect = range.getBoundingClientRect();
-    const menuWidth = Math.min(380, window.innerWidth - 24);
-    const menuMaxHeight = Math.min(window.innerHeight * 0.72, 560);
-    const left = Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.left + rect.width / 2 - menuWidth / 2));
-    const below = rect.bottom + 8;
-    const top = below + menuMaxHeight > window.innerHeight - 12 ? Math.max(12, rect.top - menuMaxHeight - 8) : below;
-    const selected: TextSelectionMenu = { start, end, text: selectedText, context, left, top };
+    selectionRange.current = range.cloneRange();
+    const position = selectionToolsPosition(rect);
+    const selected: TextSelectionMenu = { start, end, text: selectedText, context, ...position };
     setMenu(selected);
     setEntries([]); setLookupState("idle"); setMessage(""); setSenseId(null);
     setCategoryIds([]); setCategoryError(""); setCategoryPickerOpen(false); setNoteSaved(false);
@@ -190,7 +206,7 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
         ? <mark className={styles.userHighlight} key={`h-${segment.highlight.id}`} title="Chọn để bỏ highlight" onClick={() => void removeHighlight(segment.highlight!)}>{segment.text}</mark>
         : <span key={`t-${index}`}>{segment.text}</span>)}</div>
     </div>
-    {menu && <div className={styles.selectionTools} style={{ left: menu.left, top: menu.top }} onMouseDown={event => event.preventDefault()} role="dialog" aria-label="Thao tác với văn bản đã chọn">
+    {menu && <div className={styles.selectionTools} style={{ left: menu.left, top: menu.top, width: menu.width, maxHeight: menu.maxHeight }} onMouseDown={event => event.preventDefault()} role="dialog" aria-label="Thao tác với văn bản đã chọn">
       <div className={styles.selectionQuote}>“{menu.text}”</div><div className={styles.selectionActions}><button type="button" onClick={() => void saveHighlight()} disabled={saving}>Highlight</button>{allowDictionary && <button type="button" onClick={() => void lookup()} disabled={lookupState === "loading"}>{lookupState === "loading" ? "Đang tra..." : "Tra từ"}</button>}<button type="button" aria-label="Đóng" onClick={() => { setMenu(null); window.getSelection()?.removeAllRanges(); }}>×</button></div>
       {lookupState === "error" && <p role="status" className={styles.selectionMessage}>{message}</p>}
       {entries.length > 0 && <div className={styles.lookupResults}>{entries.flatMap(entry => entry.senses.map(sense => <div key={sense.id} className={styles.lookupSense}>
@@ -211,6 +227,41 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
       {message && lookupState !== "error" && <p role="status" className={styles.selectionMessage}>{message}</p>}
     </div>}
   </>;
+}
+
+function selectionToolsPosition(rect: DOMRect): Pick<TextSelectionMenu, "left" | "top" | "width" | "maxHeight"> {
+  const gap = 12;
+  const maxWidth = Math.max(180, Math.min(380, window.innerWidth - gap * 2));
+  const maxHeight = Math.min(window.innerHeight * 0.72, 560);
+  const rightSpace = window.innerWidth - rect.right - gap;
+  const leftSpace = rect.left - gap;
+  const sideWidth = Math.min(maxWidth, Math.max(rightSpace, leftSpace));
+
+  if (sideWidth >= Math.min(260, maxWidth)) {
+    const useRight = rightSpace >= maxWidth || (rightSpace >= Math.min(260, maxWidth) && rightSpace >= leftSpace);
+    const width = useRight ? Math.min(maxWidth, rightSpace) : Math.min(maxWidth, leftSpace);
+    const left = useRight ? rect.right + gap : rect.left - gap - width;
+    return { left, top: Math.max(gap, Math.min(window.innerHeight - maxHeight - gap, rect.top)), width, maxHeight };
+  }
+
+  const belowSpace = window.innerHeight - rect.bottom - gap * 2;
+  const aboveSpace = rect.top - gap * 2;
+  if (belowSpace >= 140 || belowSpace >= aboveSpace) {
+    const height = Math.max(80, Math.min(maxHeight, belowSpace));
+    return {
+      left: Math.max(gap, Math.min(window.innerWidth - maxWidth - gap, rect.left + rect.width / 2 - maxWidth / 2)),
+      top: rect.bottom + gap,
+      width: maxWidth,
+      maxHeight: height,
+    };
+  }
+  const height = Math.max(80, Math.min(maxHeight, aboveSpace));
+  return {
+    left: Math.max(gap, Math.min(window.innerWidth - maxWidth - gap, rect.left + rect.width / 2 - maxWidth / 2)),
+    top: Math.max(gap, rect.top - height - gap),
+    width: maxWidth,
+    maxHeight: height,
+  };
 }
 
 function formatElapsed(seconds: number) {
@@ -323,6 +374,7 @@ export function ReadingPassage() {
   const [status, setStatus] = useState("loading");
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
+  const [answerErrors, setAnswerErrors] = useState<Record<number, string>>({});
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [clockSaveError, setClockSaveError] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -371,7 +423,7 @@ export function ReadingPassage() {
         if (!active) return;
         submitted.current = false; leaving.current = false; exitApproved.current = false;
         const initial = Object.fromEntries(existing.answers.map(a => [a.questionId, a.value])) as Answers;
-        values.current = initial; acknowledged.current = { ...initial }; elapsedBase.current = existing.elapsedSeconds; startedAt.current = Date.now(); setElapsedSeconds(existing.elapsedSeconds); setClockSaveError(false); setAnswers(initial); setAttempt(existing); setPassage(data); setSaveState("saved"); setStatus("ready");
+        values.current = initial; acknowledged.current = { ...initial }; elapsedBase.current = existing.elapsedSeconds; startedAt.current = Date.now(); setElapsedSeconds(existing.elapsedSeconds); setClockSaveError(false); setAnswers(initial); setAnswerErrors(answerErrorsFor(data.groups, initial)); setAttempt(existing); setPassage(data); setSaveState("saved"); setStatus("ready");
       } catch { if (active) setStatus("error"); }
     })();
     return () => { active = false; };
@@ -402,18 +454,21 @@ export function ReadingPassage() {
   useEffect(() => { if (exitConfirmOpen && exitDialog.current && !exitDialog.current.open) exitDialog.current.showModal(); else if (!exitConfirmOpen && exitDialog.current?.open) exitDialog.current.close(); }, [exitConfirmOpen]);
 
   async function flush() {
-    if (!attempt || running.current) return;
+    if (!attempt || running.current) return false;
+    const validation = passage ? answerErrorsFor(passage.groups, values.current) : {};
+    setAnswerErrors(validation);
+    if (Object.keys(validation).length > 0) { if (mounted.current) setSaveState("failed"); return false; }
     running.current = true;
     try {
       while (true) {
         const questionId = Object.keys(values.current).find(key => (values.current[Number(key)] || "") !== (acknowledged.current[Number(key)] || ""));
-        if (!questionId) { if (mounted.current) setSaveState("saved"); break; }
+        if (!questionId) { if (mounted.current) setSaveState("saved"); return true; }
         const value = values.current[Number(questionId)] || "";
         const response = await api(`/api/reading/attempts/${attempt.id}/answers/${questionId}`, "PUT", { value });
         if (!response.ok) throw new Error();
         acknowledged.current[Number(questionId)] = value;
       }
-    } catch { if (mounted.current) setSaveState("failed"); }
+    } catch { if (mounted.current) setSaveState("failed"); return false; }
     finally { running.current = false; }
   }
   function currentElapsed() { return elapsedBase.current + Math.floor((Date.now() - startedAt.current) / 1000); }
@@ -446,14 +501,19 @@ export function ReadingPassage() {
     else navigate("/reading");
   }
   function updateAnswer(questionId: number, value: string) {
+    const group = passage?.groups.find(item => item.questions.some(question => question.id === questionId));
+    const validation = answerWordLimitError(value, group?.wordLimitMode ?? null);
+    setAnswerErrors(current => { const next = { ...current }; if (validation) next[questionId] = validation; else delete next[questionId]; return next; });
     values.current = { ...values.current, [questionId]: value };
-    setAnswers(values.current); setSaveState("saving");
+    setAnswers(values.current);
     if (timer.current) clearTimeout(timer.current);
+    if (validation) { setSaveState("failed"); return; }
+    setSaveState("saving");
     timer.current = setTimeout(() => { void flush(); }, 500);
   }
   function retry() { setSaveState("saving"); void flush(); }
   async function submit() {
-    if (!attempt || saveState !== "saved" || submitting) return;
+    if (!attempt || saveState !== "saved" || Object.keys(answerErrors).length > 0 || submitting) return;
     setSubmitting(true); setSubmitError(false);
     try {
       const response = await api(`/api/reading/attempts/${attempt.id}/submit`, "POST", { elapsedSeconds: currentElapsed() });
@@ -471,9 +531,18 @@ export function ReadingPassage() {
   return <main className={styles.reader}><header className={styles.readerHeader}>{attempt.mode === "REAL_TEST" ? <button type="button" className={styles.exitButton} onClick={() => { setExitSaveError(false); setExitConfirmOpen(true); }}>Thoát thi</button> : <Link to="/reading">← Danh sách</Link>}<h1>{passage.title}</h1>{attempt.mode === "REAL_TEST" && <span className={styles.modeBadge}>Thi thật</span>}<span className={styles.elapsedTime} role="timer" aria-label="Thời gian làm bài">{formatElapsed(elapsedSeconds)}</span><span className={styles.preview} role="status" aria-live="polite">{saveState === "saving" ? "Đang lưu..." : saveState === "failed" ? <>Chưa lưu được. <button type="button" className={styles.retry} onClick={retry}>Thử lưu lại</button></> : "Đã lưu"}</span></header><div className={styles.mobileTabs} role="tablist" aria-label="Khu vực bài đọc"><button role="tab" aria-selected={tab === "reading"} onClick={() => setTab("reading")}>Bài đọc</button><button role="tab" aria-selected={tab === "questions"} onClick={() => setTab("questions")}>Câu hỏi</button></div><div className={styles.workspace} ref={workspace} style={{ gridTemplateColumns: `minmax(0, ${width}fr) 12px minmax(0, ${100 - width}fr)` }}>
     <section id="reading-panel" aria-label="Bài đọc" className={`${styles.pane} ${styles.readingPane} ${tab === "questions" ? styles.mobileHidden : ""}`}><div className={styles.readingContent}><p className={styles.passageLabel}>Reading passage {passage.partNumber}</p><h2>{passage.title}</h2><PassageText body={passage.body} passageId={passage.id} allowDictionary={attempt.mode !== "REAL_TEST"} /></div></section>
     <div className={styles.divider} role="separator" tabIndex={0} aria-label="Điều chỉnh độ rộng bài đọc và câu hỏi" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={65} aria-valuenow={Math.round(width)} aria-controls="reading-panel" onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); setFromPointer(e); }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) setFromPointer(e); }} onKeyDown={resizeKey}><span aria-hidden="true">⋮</span></div>
-    <section ref={questionsPane} aria-label="Câu hỏi" className={`${styles.pane} ${styles.questionsPane} ${tab === "reading" ? styles.mobileHidden : ""}`}><div className={styles.questionsContent}><p className={styles.previewNote}>Câu trả lời được lưu tự động. Đồng hồ vẫn chạy khi bạn chuyển tab và thời lượng được lưu định kỳ mỗi 15 giây.</p>{clockSaveError && <p className={styles.clockWarning} role="alert">Chưa lưu được thời gian gần nhất. Hệ thống sẽ thử lại ở mốc tiếp theo.</p>}{passage.groups.map(group => <section className={styles.group} key={group.id}><h2>Questions {group.questions[0]?.number}{group.questions.length > 1 ? `–${group.questions[group.questions.length - 1].number}` : ""}</h2><p className={styles.instructions}>{group.instructions}</p>{group.candidates.length > 0 && <div className={styles.candidates}><strong>Danh sách lựa chọn</strong><ul>{group.candidates.map(c => <li key={c.label}><b>{c.label}.</b> {c.text}</li>)}</ul>{group.candidateReuse && <p>Một lựa chọn có thể được sử dụng nhiều lần.</p>}</div>}{group.questions.map(q => <article className={styles.question} id={`question-${q.number}`} key={q.id}><span className={styles.number}>{q.number}</span><div className={styles.questionBody}><p>{q.text}{group.answerInputMode === "TEXT_ENTRY" && <> <input aria-label={`Câu trả lời ${q.number}`} className={styles.blank} placeholder="Đáp án" maxLength={1000} value={answers[q.id] || ""} onChange={e => updateAnswer(q.id, e.target.value)} /> {q.afterBlank}</>}</p>{group.candidates.length > 0 ? <select aria-label={`Đáp án câu ${q.number}`} value={answers[q.id] || ""} onChange={e => updateAnswer(q.id, e.target.value)}><option value="">Chọn đáp án</option>{group.candidates.map(c => <option key={c.label} value={c.label}>{c.label} — {c.text}</option>)}</select> : q.choices.length > 0 && <fieldset><legend className={styles.srOnly}>Lựa chọn câu {q.number}</legend>{q.choices.map(c => <label className={styles.option} key={c.label}><input type="radio" name={`question-${q.id}`} checked={answers[q.id] === c.label} onChange={() => updateAnswer(q.id, c.label)} /> <span>{group.variant === "MULTIPLE_CHOICE_SINGLE" ? `${c.label}. ` : ""}{c.text}</span></label>)}{answers[q.id] && <button type="button" className={styles.clearAnswer} onClick={() => updateAnswer(q.id, "")}>Bỏ chọn</button>}</fieldset>}</div></article>)}</section>)}</div></section>
+    <section ref={questionsPane} aria-label="Câu hỏi" className={`${styles.pane} ${styles.questionsPane} ${tab === "reading" ? styles.mobileHidden : ""}`}><div className={styles.questionsContent}><p className={styles.previewNote}>Câu trả lời được lưu tự động. Đồng hồ vẫn chạy khi bạn chuyển tab và thời lượng được lưu định kỳ mỗi 15 giây.</p>{clockSaveError && <p className={styles.clockWarning} role="alert">Chưa lưu được thời gian gần nhất. Hệ thống sẽ thử lại ở mốc tiếp theo.</p>}{passage.groups.map(group => <section className={styles.group} key={group.id}>
+  <h2>Questions {group.questions[0]?.number}{group.questions.length > 1 ? `–${group.questions[group.questions.length - 1].number}` : ""}</h2>
+  <p className={styles.instructions}>{group.instructions}</p>
+  {supportsTaskContent(group.variant)
+    ? <TaskQuestionInputs group={group} answers={answers} errors={answerErrors} onAnswer={updateAnswer} />
+    : <>
+      {group.candidates.length > 0 && <div className={styles.candidates}><strong>Danh sách lựa chọn</strong><ul>{group.candidates.map(c => <li key={c.label}><b>{c.label}.</b> {c.text}</li>)}</ul>{group.candidateReuse && <p>Một lựa chọn có thể được sử dụng nhiều lần.</p>}</div>}
+      {group.questions.map(q => { const answerError = answerErrors[q.id]; return <article className={styles.question} id={`question-${q.number}`} key={q.id}><span className={styles.number}>{q.number}</span><div className={styles.questionBody}><p>{q.text}{group.answerInputMode === "TEXT_ENTRY" && <> <input aria-label={`Câu trả lời ${q.number}`} aria-invalid={!!answerError} aria-describedby={answerError ? `answer-error-${q.id}` : undefined} className={styles.blank} placeholder="Đáp án" maxLength={1000} value={answers[q.id] || ""} onChange={e => updateAnswer(q.id, e.target.value)} /> {q.afterBlank}{answerError && <span id={`answer-error-${q.id}`} className={styles.answerError} role="alert">{answerError}</span>}</>}</p>{group.candidates.length > 0 ? <select aria-label={`Đáp án câu ${q.number}`} value={answers[q.id] || ""} onChange={e => updateAnswer(q.id, e.target.value)}><option value="">Chọn đáp án</option>{group.candidates.map(c => <option key={c.label} value={c.label}>{c.label} — {c.text}</option>)}</select> : q.choices.length > 0 && <fieldset><legend className={styles.srOnly}>Lựa chọn câu {q.number}</legend>{q.choices.map(c => <label className={styles.option} key={c.label}><input type="radio" name={`question-${q.id}`} checked={answers[q.id] === c.label} onChange={() => updateAnswer(q.id, c.label)} /> <span>{group.variant === "MULTIPLE_CHOICE_SINGLE" ? `${c.label}. ` : ""}{c.text}</span></label>)}{answers[q.id] && <button type="button" className={styles.clearAnswer} onClick={() => updateAnswer(q.id, "")}>Bỏ chọn</button>}</fieldset>}</div></article>; })}
+    </>}
+</section>)}</div></section>
   </div><footer className={styles.questionNav} aria-label="Điều hướng câu hỏi"><span>Câu hỏi</span><div>{questions.map(q => { const isActive = activeQuestionNumber === q.number; return <button key={q.id} className={`${(answers[q.id] || "").trim() ? styles.answered : ""} ${isActive ? styles.activeQuestion : ""}`} onClick={() => { setActiveQuestionNumber(q.number); setTab("questions"); setTarget(q.number); }} aria-current={isActive ? "true" : undefined} aria-label={`Đi đến câu ${q.number}, ${(answers[q.id] || "").trim() ? "đã trả lời" : "chưa trả lời"}${isActive ? ", đang chọn" : ""}`}>{q.number}</button>; })}</div><span>Đã trả lời: {answered}/{questions.length}</span><button type="button" className={styles.submitButton} onClick={() => { setSubmitError(false); setConfirmOpen(true); }}>Nộp bài</button></footer>
-    {confirmOpen && <dialog ref={dialog} className={styles.submitDialog} aria-labelledby="submit-title" onCancel={e => { if (submitting) e.preventDefault(); else setConfirmOpen(false); }}><h2 id="submit-title">Xác nhận nộp bài</h2><p>Bạn đã trả lời <strong>{answered}/{questions.length}</strong> câu.</p><p>{questions.length - answered > 0 ? `Còn ${questions.length - answered} câu chưa trả lời. Bạn vẫn có thể nộp bài.` : "Bạn đã trả lời tất cả câu hỏi."}</p><p>Sau khi nộp, bạn không thể thay đổi câu trả lời của lượt làm này.</p>{saveState !== "saved" && <p role="status">{saveState === "saving" ? "Đang lưu câu trả lời, vui lòng chờ." : <>Có câu trả lời chưa được lưu. <button type="button" className={styles.retry} onClick={retry}>Thử lưu lại</button></>}</p>}{submitError && <p role="alert">Chưa xác nhận được việc nộp bài. Hãy kiểm tra kết nối và thử lại.</p>}<div className={styles.dialogActions}><button type="button" disabled={submitting} onClick={() => setConfirmOpen(false)}>Tiếp tục làm bài</button><button type="button" className={styles.submitButton} disabled={saveState !== "saved" || submitting} onClick={() => void submit()}>{submitting ? "Đang nộp..." : "Xác nhận nộp bài"}</button></div></dialog>}
+    {confirmOpen && <dialog ref={dialog} className={styles.submitDialog} aria-labelledby="submit-title" onCancel={e => { if (submitting) e.preventDefault(); else setConfirmOpen(false); }}><h2 id="submit-title">Xác nhận nộp bài</h2><p>Bạn đã trả lời <strong>{answered}/{questions.length}</strong> câu.</p><p>{questions.length - answered > 0 ? `Còn ${questions.length - answered} câu chưa trả lời. Bạn vẫn có thể nộp bài.` : "Bạn đã trả lời tất cả câu hỏi."}</p><p>Sau khi nộp, bạn không thể thay đổi câu trả lời của lượt làm này.</p>{Object.keys(answerErrors).length > 0 && <p className={styles.answerError} role="alert">Hãy sửa các đáp án vượt giới hạn từ trước khi nộp.</p>}{saveState !== "saved" && <p role="status">{saveState === "saving" ? "Đang lưu câu trả lời, vui lòng chờ." : <>Có câu trả lời chưa được lưu. <button type="button" className={styles.retry} onClick={retry}>Thử lưu lại</button></>}</p>}{submitError && <p role="alert">Chưa xác nhận được việc nộp bài. Hãy kiểm tra kết nối và thử lại.</p>}<div className={styles.dialogActions}><button type="button" disabled={submitting} onClick={() => setConfirmOpen(false)}>Tiếp tục làm bài</button><button type="button" className={styles.submitButton} disabled={saveState !== "saved" || Object.keys(answerErrors).length > 0 || submitting} onClick={() => void submit()}>{submitting ? "Đang nộp..." : "Xác nhận nộp bài"}</button></div></dialog>}
     {attempt.mode === "REAL_TEST" && <dialog ref={exitDialog} className={styles.submitDialog} aria-labelledby="exit-title" onCancel={event => { event.preventDefault(); if (blocker.state === "blocked") blocker.reset(); setExitConfirmOpen(false); }}><h2 id="exit-title">Thoát chế độ thi thật?</h2><p>Lượt làm sẽ được lưu để bạn có thể tiếp tục sau. Đồng hồ sẽ dừng khi thoát và tiếp tục khi mở lại lượt làm.</p>{exitSaveError && <p role="alert">Chưa xác nhận được lưu đầy đủ câu trả lời hoặc thời gian. Hãy thử lại; nếu vẫn muốn thoát, có thể thoát dù chưa lưu dữ liệu mới nhất.</p>}<div className={styles.dialogActions}><button type="button" onClick={() => { if (blocker.state === "blocked") blocker.reset(); setExitConfirmOpen(false); }}>Ở lại làm bài</button><button type="button" className={styles.submitButton} onClick={() => void leaveRealTest()}>Thoát, tiếp tục sau</button>{exitSaveError && <button type="button" className={styles.forceExitButton} onClick={() => void leaveRealTest(true)}>Thoát dù chưa lưu</button>}</div></dialog>}
   </main>;
 }

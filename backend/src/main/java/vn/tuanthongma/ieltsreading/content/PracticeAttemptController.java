@@ -106,7 +106,7 @@ class PracticeAttemptController {
         if (attempts.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         Attempt attempt = attempts.getFirst();
         if (!"IN_PROGRESS".equals(attempt.status())) throw new ResponseStatusException(HttpStatus.CONFLICT);
-        List<QuestionMode> modes = jdbc.query("SELECT g.task_variant, g.answer_input_mode FROM passage_questions q JOIN question_groups g ON g.question_group_id = q.question_group_id WHERE q.passage_question_id = ? AND g.passage_id = ?", (r, n) -> new QuestionMode(r.getString(1), r.getString(2)), questionId, attempt.passageId());
+        List<QuestionMode> modes = jdbc.query("SELECT g.task_variant, g.answer_input_mode, g.word_limit_mode FROM passage_questions q JOIN question_groups g ON g.question_group_id = q.question_group_id WHERE q.passage_question_id = ? AND g.passage_id = ?", (r, n) -> new QuestionMode(r.getString(1), r.getString(2), r.getString(3)), questionId, attempt.passageId());
         if (modes.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         if (input.value() == null || input.value().length() > 1000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Đáp án không hợp lệ.");
         String raw = input.value();
@@ -116,6 +116,10 @@ class PracticeAttemptController {
             QuestionMode mode = modes.getFirst();
             boolean textEntry = "TEXT_ENTRY".equals(mode.answerInputMode());
             String value = textEntry ? Normalizer.normalize(raw, Normalizer.Form.NFC).strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT) : raw.strip();
+            if (textEntry) {
+                String answerError = AnswerTextPolicy.validationError(raw, mode.wordLimitMode());
+                if (answerError != null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, answerError);
+            }
             if (!textEntry) {
                 String sql = "SHARED_CHOICE_POOL".equals(mode.answerInputMode())
                         ? "SELECT COUNT(*) FROM matching_questions c JOIN passage_questions q ON q.question_group_id = c.question_group_id WHERE q.passage_question_id = ? AND c.node_kind = 'CANDIDATE' AND c.answer_label = ?"
@@ -128,7 +132,7 @@ class PracticeAttemptController {
         jdbc.update("UPDATE quiz_attempts SET updated_at = CURRENT_TIMESTAMP WHERE quiz_attempt_id = ?", attemptId);
     }
 
-    record QuestionMode(String variant, String answerInputMode) {}
+    record QuestionMode(String variant, String answerInputMode, String wordLimitMode) {}
 
     private int checkedElapsedSeconds(ClockInput input) {
         int seconds = input == null || input.elapsedSeconds() == null ? -1 : input.elapsedSeconds();

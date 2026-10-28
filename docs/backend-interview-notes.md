@@ -62,9 +62,17 @@ Tài liệu tích lũy các kiến thức rút ra trong quá trình xây dựng 
 
 ## 10. Tổng hợp kết quả full test
 
-**Trong dự án:** API kết quả full test trả tổng số đúng/sai/bỏ qua, band Academic, breakdown theo loại câu hỏi và dữ liệu review từng passage/câu. Backend chỉ dựng đáp án đúng sau khi xác minh attempt thuộc người gọi và đã `SUBMITTED`; số câu review được đổi sang số thứ tự toàn bài theo range của từng passage.
+**Trong dự án:** API kết quả full test trả tổng số đúng/sai/bỏ qua, band Academic, breakdown theo loại câu hỏi và dữ liệu review từng passage/câu. Khi nộp bài, backend lưu số câu đã trả lời, số câu đúng, band score, nhãn band và khóa bảng quy đổi đã áp dụng. Backend chỉ dựng đáp án đúng sau khi xác minh attempt thuộc người gọi và đã `SUBMITTED`; số câu review được đổi sang số thứ tự toàn bài theo range của từng passage.
 
 **Điểm phỏng vấn:** Khi một màn hình cần thống kê theo nhóm, tránh N+1 query bằng batch query hoặc aggregate phù hợp. Chọn nơi tổng hợp theo kích thước dữ liệu và độ phức tạp: tập 40 câu có thể đọc một lần rồi nhóm trong Java; dữ liệu lớn hoặc dashboard nhiều nhóm có thể cần `GROUP BY` ở PostgreSQL. API response cần trả đủ dữ liệu cho UI nhưng không để lộ đáp án khi attempt chưa nộp; kiểm tra quyền sở hữu và trạng thái phải chạy trước khi dựng review.
+
+**Điểm phỏng vấn:** Bảng quy đổi band thay đổi theo phiên bản đề thi, nên không nên để ngưỡng score hardcode trong controller. Bảng reference có version và các dải raw score; khi nộp bài, backend chọn đúng dải và lưu khóa phiên bản cùng band kết quả. Snapshot giúp lịch sử không bị đổi nếu bảng quy đổi hiện hành được cập nhật sau này.
+
+## 14. Validation giới hạn từ ở cả API ghi và chấm
+
+**Đã triển khai:** Admin kiểm tra giới hạn trên đáp án chuẩn; API lưu câu trả lời của học viên kiểm tra lại theo `word_limit_mode` trong PostgreSQL. Frontend phản hồi ngay khi vượt giới hạn, nhưng backend mới là nơi quyết định dữ liệu được lưu. Bộ chấm cũng áp dụng giới hạn trước khi so sánh đáp án chính và các đáp án thay thế.
+
+**Điểm phỏng vấn:** Validation phía trình duyệt phục vụ trải nghiệm và có thể bị bỏ qua hoặc sửa request. Quy tắc nghiệp vụ phải được xác thực lại ở backend trước khi ghi dữ liệu; khi chấm điểm nên kiểm tra lại bất biến để bảo vệ dữ liệu cũ hoặc dữ liệu được ghi qua luồng khác. Một policy dùng chung giúp admin, API lưu bài và bộ chấm áp dụng cùng cách đếm từ nối bằng dấu gạch ngang và số nguyên.
 
 ## 11. Dashboard hoạt động Reading và thời lượng attempt
 
@@ -89,3 +97,11 @@ Tài liệu tích lũy các kiến thức rút ra trong quá trình xây dựng 
 **Điểm phỏng vấn:** Thời gian do trình duyệt gửi lên là dữ liệu không đáng tin vì người dùng có thể sửa request. Lưu mốc thời gian đang chạy ở backend giúp thời lượng được tính từ nguồn tin cậy. `SELECT ... FOR UPDATE` khóa attempt trong lúc cập nhật để heartbeat, lưu đáp án, pause và submit không ghi đè trạng thái của nhau. Khi cập nhật phát hiện hết giờ trong lúc lưu đáp án, trạng thái nộp được commit dù API trả xung đột; nếu transaction rollback toàn bộ, attempt có thể bị kẹt ở `IN_PROGRESS`.
 
 **Đánh đổi:** Backend thực thi hết giờ ở request tiếp theo; khi trang đang mở, frontend gửi yêu cầu nộp ngay khi bộ đếm chạm 60 phút. Nếu mất mạng, thời gian offline không được cộng sau khi kết nối lại, ngoại trừ tối đa một checkpoint 15 giây. Đây là giới hạn thực tế của bộ đếm không có kết nối liên tục và không dùng tác vụ nền.
+
+## 14. IELTS task variants: set scoring and structured layouts
+
+**Đã triển khai:** Multiple Choice (Multiple Answers) lưu một lựa chọn cho mỗi answer box. Tất cả câu trong nhóm tham chiếu cùng một choice bank; đáp án đúng được chấm như một tập không phụ thuộc thứ tự, và một nhãn đúng không thể được tính điểm hai lần. Table/Flow-chart dùng JSON có version trong `question_groups.presentation_template`; mỗi blank tham chiếu chỉ số câu trong nhóm, không lưu HTML hoặc số câu passage tuyệt đối. Short Answer tái sử dụng `blank_questions` và các đáp án thay thế. Build frontend/backend đã qua; các luồng cần người dùng kiểm tra thủ công.
+
+**Điểm phỏng vấn:** Mỗi ô đáp án vẫn tương ứng một câu có điểm trong attempt, nhưng với dạng “choose two letters” thì đáp án là tập hợp. Lưu một nhãn mỗi ô cho phép tái sử dụng endpoint autosave hiện tại; bộ chấm phải kiểm tra uniqueness trong nhóm để không ghi nhận cùng một lựa chọn hai lần. Với bố cục Table/Flow-chart, tham chiếu blank theo index trong danh sách câu hỏi ổn định hơn lưu số câu cuối cùng vì số câu có thể thay đổi khi admin chèn/xóa câu và backend tự đánh số lại.
+
+**Điểm phỏng vấn:** JSON template giúp giữ bố cục trình bày mà không tạo các bảng cho từng loại đề, nhưng cần schema version, validation ở server, giới hạn kích thước/số phần tử, và không render nội dung tác giả như HTML. Đây là đánh đổi giữa linh hoạt cho UI và khả năng truy vấn trực tiếp từng ô layout bằng SQL.

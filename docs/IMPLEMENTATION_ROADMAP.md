@@ -1,6 +1,6 @@
 # IELTS Academic Reading System — Implementation Roadmap
 
-Last updated: 2026-10-16
+Last updated: 2026-10-28
 
 ## 1. Planning principles
 
@@ -469,7 +469,47 @@ Exit criteria:
 - The full learner and administrator scenarios can be demonstrated reliably.
 - Limitations and future work are explicitly documented rather than hidden.
 
-## 5. Cross-phase test strategy
+## 5. Confirmed follow-up backlog — 2026-10-28
+
+These follow-ups are in project scope, but remain outside the current MVP exit gate unless the owner reprioritizes them. Review the screen and API contract with the owner before implementation.
+
+### B1 — Matching interaction: drag to answer, with accessible alternatives
+
+- Keep the existing shared candidate pool and matching API/data model.
+- On desktop, render candidates as labelled draggable chips and each numbered prompt with a visible answer drop slot.
+- Also support click-a-candidate then click-a-question, keyboard-operable selection, and the current select control as a responsive fallback; drag must not be the only way to answer.
+- Respect `candidate_reuse`: disable an assigned candidate when reuse is false; leave it available when reuse is true. Permit replacing/clearing an answer without losing other answers.
+- Apply the same interaction in standalone practice and full-test practice; the result review must continue to show selected and correct answers clearly.
+- Acceptance: mouse, keyboard, narrow layout, reassignment, no-reuse/reuse rules, autosave, and review all preserve the same stable answer label.
+
+### B2 — Close the remaining IELTS Academic Reading task-type gaps
+
+Official IELTS Academic materials include multiple choice (one or more answers), identifying information, identifying writers' claims, matching information/headings/features/sentence endings, sentence completion, summary/note/table/flow-chart completion, diagram labelling, and short answers.
+
+Status on 2026-10-28: the approved first implementation pass is complete for Multiple Choice (Multiple Answers), Table Completion, Flow-chart Completion, and Short Answer. Existing families `OPTION`, `BLANK`, and `MATCHING` remain unchanged.
+
+- Multiple Choice (Multiple Answers) uses one shared choice bank and one selected label per numbered answer box. Correct labels are treated as a set, so order does not matter and one label cannot earn credit twice.
+- Table and flow-chart templates are versioned JSON in the existing `presentation_template` field. Text parts and question-index parts are rendered as text; the server validates template version, row width, indexes, and one placement per answer box.
+- Short Answer reuses blank-answer storage, authored alternatives, and the word-limit policy. The policy now allows up to three words and one digit-only number for the corresponding IELTS instruction.
+- Learner task components are shared by standalone practice, full-test practice, and result review. Admin can author and preview the structured table/flow layout.
+- Diagram Label Completion remains deferred until a durable image-asset workflow with alt text and stable references exists.
+
+Frontend and backend build checks passed on 2026-10-28. The owner still needs to manually verify admin authoring, answer saving, scoring, and review before this backlog item is fully validated.
+
+### B3 — Admin-assisted PDF import for passages and full tests
+
+- Add an **Import from PDF** flow inside the existing Admin area; do not build a separate public-facing importer.
+- MVP importer scope: text-based PDFs first. Parse into an editable draft and preserve page/source references so the admin can compare extracted text with the original.
+- The parser may propose passage boundaries, question groups, and instructions, but the admin confirms passage number, question numbers, task variant, candidate pool, answer key, accepted answers, and word limits before saving.
+- Save confirmed content as drafts using the existing passage/question-group model. Reuse the individual-passage publish validation. Add a transactional “publish full test” path only after validating all three passages and the 40-question composition; no partial publication if one part fails.
+- Keep scanned-PDF OCR as a later extension unless the first extraction spike shows it is necessary for the selected source set.
+- Acceptance: compare every imported passage, question, and answer with the source PDF; correct the draft; pass current numbering/40-question rules; publish either an individual passage or the composed full test.
+
+### B4 — Confirmed for later implementation
+
+The owner explicitly requested that the Admin PDF import tool be retained in the project to-do list. This backlog records it alongside the matching interaction and question-type review so scope and sequencing remain visible.
+
+## 6. Cross-phase test strategy
 
 Each implemented business rule needs tests at the cheapest effective layer:
 
@@ -489,7 +529,7 @@ Minimum edge-case checklist for every feature:
 - External dependency timeout or malformed response.
 - State change between read and update.
 
-## 6. Documentation maintained throughout the project
+## 7. Documentation maintained throughout the project
 
 - `PROJECT_CONTEXT.md`: current scope and agreed behavior.
 - `DATA_MODEL_DECISIONS.md`: confirmed structural and persistence decisions.
@@ -499,10 +539,9 @@ Minimum edge-case checklist for every feature:
 - Architecture Decision Records: create one for decisions with meaningful alternatives, such as authentication style, content versioning, caching policy, and frontend framework.
 - Learning/defect journal: symptom, reproduction, root cause, fix, regression test, and lesson learned.
 
-## 7. Immediate next actions
+## 8. Immediate next actions
 
-1. Complete Phase 0 by turning the confirmed flows into an MVP backlog and acceptance scenarios.
-2. Start Phase 1 with the data dictionary and resolve submitted-answer encoding, lifecycle values, passage placement, and historical content versioning.
-3. In parallel with the non-blocking parts of Phase 1, the user supplies the frontend palette, fonts, and reference interfaces for Phase 2.
-4. Register the Merriam-Webster key and store it outside the repository, but postpone integration code until Phase 8.
-5. Do not begin entity/controller generation before Phase 1 exit criteria are approved.
+1. Manually author a draft containing one example of each new task type; verify the preview, question numbering, edit/delete behavior, and publish validation.
+2. Exercise each type in standalone practice and full-test practice, including autosave, scoring, submitted results, and review.
+3. Record and fix any issues found before starting another implementation slice.
+4. Then choose the next backlog item with the owner; the remaining named items include accessible drag-and-drop matching and the Admin PDF-import tool. Keep Diagram Label Completion deferred until an image source is available.

@@ -23,7 +23,8 @@ class ReadingPassageController {
                               String attemptMode, int answeredCount, Long latestSubmittedAttemptId) {}
     record Choice(String label, String text) {}
     record Question(long id, int number, String text, String afterBlank, List<Choice> choices) {}
-    record Group(long id, String variant, String answerInputMode, String instructions, boolean candidateReuse, List<Choice> candidates, List<Question> questions) {}
+    record Group(long id, String variant, String answerInputMode, String instructions, String wordLimitMode, boolean candidateReuse,
+                 List<Choice> candidates, PresentationTemplate presentationTemplate, List<Question> questions) {}
     record Passage(long id, String title, String body, int partNumber, List<Group> groups) {}
 
     @GetMapping
@@ -74,7 +75,7 @@ class ReadingPassageController {
                 """, r -> { choices.computeIfAbsent(r.getLong("passage_question_id"), k -> new ArrayList<>()).add(new Choice(r.getString("answer_label"), r.getString("option_text"))); }, id);
         Map<Long, Group> groups = new LinkedHashMap<>();
         jdbc.query("""
-                SELECT g.question_group_id, g.task_variant, g.answer_input_mode, g.instructions, g.candidate_reuse,
+                SELECT g.question_group_id, g.task_variant, g.answer_input_mode, g.instructions, g.word_limit_mode, g.candidate_reuse, g.presentation_template,
                        q.passage_question_id, q.question_number, q.question_text, b.blank_text
                 FROM question_groups g JOIN passage_questions q ON q.question_group_id = g.question_group_id
                 LEFT JOIN blank_questions b ON b.passage_question_id = q.passage_question_id
@@ -82,7 +83,7 @@ class ReadingPassageController {
                 """, r -> {
             long groupId = r.getLong("question_group_id"), questionId = r.getLong("passage_question_id");
             Group group = groups.computeIfAbsent(groupId, key -> {
-                try { return new Group(key, r.getString("task_variant"), r.getString("answer_input_mode"), r.getString("instructions"), r.getBoolean("candidate_reuse"), candidates.getOrDefault(key, List.of()), new ArrayList<>()); }
+                try { return new Group(key, r.getString("task_variant"), r.getString("answer_input_mode"), r.getString("instructions"), r.getString("word_limit_mode"), r.getBoolean("candidate_reuse"), candidates.getOrDefault(key, List.of()), PresentationTemplateCodec.read(r.getString("presentation_template")), new ArrayList<>()); }
                 catch (java.sql.SQLException e) { throw new IllegalStateException(e); }
             });
             group.questions().add(new Question(questionId, r.getInt("question_number"), r.getString("question_text"), r.getString("blank_text"), choices.getOrDefault(questionId, List.of())));

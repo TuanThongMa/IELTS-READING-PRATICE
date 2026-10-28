@@ -63,6 +63,7 @@
 .questionForm { display: grid; gap: 18px; margin: 20px 24px 0; }
 .questionForm label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
 .questionForm textarea, .questionForm select, .questionForm input[type="number"] { width: 100%; border: 1px solid #94a3b8; border-radius: var(--radius); padding: 10px 12px; font: inherit; color: var(--text); background: var(--surface); resize: vertical; }
+.questionForm input:not([type="radio"]):not([type="checkbox"]) { min-height: 42px; border: 1px solid #94a3b8; border-radius: var(--radius); padding: 10px 12px; font: inherit; color: var(--text); background: var(--surface); }
 .questionForm select { max-width: 300px; }
 .questionForm input[type="number"] { max-width: 120px; }
 .question { display: grid; gap: 16px; margin: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); }
@@ -80,6 +81,11 @@
 .savedQuestions ul { list-style: none; padding-left: 16px; }
 .savedQuestions ul li { border: 0; padding: 2px 0; }
 .question .open { justify-self: start; }
+.tablePreview { max-width: 100%; overflow-x: auto; }
+.tablePreview table { width: 100%; border-collapse: collapse; background: var(--surface); }
+.tablePreview th, .tablePreview td { min-width: 120px; padding: 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; line-height: 1.5; }
+.tablePreview th { background: var(--primary-soft); }
+.tablePreview caption { padding: 8px; text-align: left; color: var(--text-secondary); font-weight: 600; }
 .error, .notice { border-radius: var(--radius); padding: 12px 16px; font-size: 14px; }
 .error { background: var(--danger-bg); color: var(--danger); }
 .notice { background: var(--success-bg); color: var(--success); }
