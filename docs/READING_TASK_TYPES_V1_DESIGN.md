@@ -1,7 +1,7 @@
 # Reading Task Types — v1 Design
 
-**Status:** Approved and implemented in the first pass on 2026-10-28. Manual end-to-end validation remains.  
-**Scope:** Multiple Choice (Multiple Answers), Table Completion, Flow-chart Completion, Short Answer.  
+**Status:** First pass implemented on 2026-10-28; paragraph completion added on 2026-10-31. Manual end-to-end validation remains.
+**Scope:** Multiple Choice (Multiple Answers), Table Completion, Flow-chart Completion, Short Answer, and paragraph-based Sentence/Note/Summary Completion.
 **Deferred:** Diagram Label Completion (no approved image/asset source yet).
 
 ## 1. Existing foundation
@@ -31,6 +31,10 @@ The admin sets instructions and the word limit, then builds a table with a capti
 
 The admin sets instructions and the word limit, then builds an ordered sequence of steps. A step can contain static text and numbered blanks. The learner sees the steps connected vertically with arrows and types into each blank.
 
+### Paragraph-based Completion
+
+For a completion task where several blanks appear inside one paragraph, the admin pastes the paragraph, selects a word or phrase, and turns the selection into an inline blank. The selected text is prefilled as the answer and retained as `sourceText` so deleting that blank can restore the original wording. The paragraph belongs to the question group; the source passage body remains unchanged. Each blank still maps to its own `passage_questions` record, has independent answers and explanation, receives its own sequential question number, is autosaved separately, and earns one mark when scored.
+
 ### Short Answer
 
 The admin enters the instruction, prompt for each numbered question, correct answer, accepted alternatives, and word limit. The learner enters one text answer per numbered question. It uses the existing blank-answer storage and case/whitespace normalization.
@@ -58,6 +62,8 @@ Use `question_groups.presentation_template` as versioned JSON. Template referenc
 
 `FLOW_CHART` uses `{ "version": 1, "kind": "FLOW_CHART", "caption": "", "steps": [[{"text":"..."}, {"questionIndex":0}]] }`. Each step's parts render in order; the UI adds arrows between steps. A template must reference every question exactly once, use valid question indexes, and have consistent table row widths. Plain text is rendered as text, never as HTML.
 
+`PARAGRAPH` uses `{ "version": 1, "kind": "PARAGRAPH", "paragraphs": [[{"text":"..."}, {"questionIndex":0,"sourceText":"oak"}, {"text":"..."}, {"questionIndex":1,"sourceText":"flooring"}]] }`. Question indexes refer to the ordered question records in the group, not passage question numbers. `sourceText` is optional restoration text for a blank; the matching answer is stored separately in its question record. Admin read APIs retain it so a deleted blank can restore its text; learner and review APIs strip it to avoid exposing the hidden wording before submission. The backend requires blank references to appear in ascending order and exactly once, so visible numbering follows paragraph order. This keeps the layout stable when the backend re-numbers questions after group edits.
+
 ## 4. Admin authoring form
 
 - Keep the existing question-group form and automatic passage numbering.
@@ -65,6 +71,7 @@ Use `question_groups.presentation_template` as versioned JSON. Template referenc
   - Multiple Answers: instruction/prompt, shared options, answer-box count, and correct-option set.
   - Table: caption, column headings, editable rows/cells, and an “answer blank” control inside a cell.
   - Flow-chart: editable ordered steps and an “answer blank” control inside a step.
+  - Paragraph completion: one pasteable paragraph editor; selecting a word or phrase and choosing “Create blank” inserts a numbered marker inline. The selected wording pre-fills that question's answer, and each blank keeps its own accepted alternatives and explanation fields.
   - Short Answer: prompt and answer fields per numbered question.
 - Show a live preview and the resulting question-number range before saving.
 - Keep word-limit validation and accepted-answer alternatives visible beside each blank.
@@ -74,6 +81,7 @@ Use `question_groups.presentation_template` as versioned JSON. Template referenc
 - Multiple Answers: instruction and shared choice bank once, followed by one clearly numbered answer selector per answer box. Prevent duplicate labels from being selected in the UI; the server remains authoritative for scoring.
 - Table Completion: semantic table with inline answer inputs in the correct cells.
 - Flow-chart Completion: vertical sequence of step cards with arrows and inline answer inputs.
+- Paragraph completion: paragraph text in the question pane with a numbered inline input for every blank. Selecting or saving one blank addresses only that numbered question.
 - Short Answer: numbered prompt rows with text inputs.
 - Review pages reuse each task layout and show the learner answer, accepted answer(s), status, and explanation without altering the original template.
 - Full-test mode continues to use the same task components inside each passage pane; one blank/answer box remains one question in the 40-question total.
@@ -82,7 +90,7 @@ Use `question_groups.presentation_template` as versioned JSON. Template referenc
 ## 6. API and persistence
 
 - Keep the existing admin question-group endpoint and attempt answer endpoints.
-- Add `presentationTemplate` to admin and reading group DTOs for Table/Flow-chart groups.
+- Add `presentationTemplate` to admin and reading group DTOs for Table/Flow-chart/paragraph layouts.
 - Store each table/flow-chart blank in `blank_questions`; store accepted alternatives in `blank_answer_variants`.
 - Store short-answer prompts in `passage_questions.question_text`, with answers in the existing blank tables.
 - Store one Multiple Answers option bank in `option_questions` and link it to each numbered answer box via `question_answer_options`; score the group as an unordered set and award no more than one mark per distinct selected label.
@@ -91,10 +99,10 @@ Use `question_groups.presentation_template` as versioned JSON. Template referenc
 
 ## 7. Implementation notes and remaining validation
 
-- Admin authoring supports shared answer choices for Multiple Choice (Multiple Answers), table rows/cells, ordered flow-chart steps, and Short Answer prompts. Table/flow blanks reference the ordered group questions by zero-based index so passage renumbering does not break the layout.
-- Every table/flow answer blank maps to one numbered question. Server validation requires each question index to appear exactly once, validates table row width, and rejects unsupported template versions or malformed parts. The client renders the template as React text and semantic HTML; it does not interpret authored HTML.
+- Admin authoring supports shared answer choices for Multiple Choice (Multiple Answers), table rows/cells, ordered flow-chart steps, paragraph-based completion, and Short Answer prompts. Structured-layout blanks reference the ordered group questions by zero-based index so passage renumbering does not break the layout.
+- Every table/flow/paragraph answer blank maps to one numbered question. Server validation requires each question index to appear exactly once, validates table row width and paragraph/part limits, and rejects unsupported template versions or malformed parts. The client renders the template as React text and semantic HTML; it does not interpret authored HTML.
 - Multiple Choice (Multiple Answers) stores one selected label per numbered box. Scoring compares the group set without depending on the order and credits each correct label at most once.
-- The same learner component is used for passage practice, full-test practice, and both review screens. Build checks passed; manual admin/practice/full-test scenarios remain before marking this feature fully verified.
+- The same learner component is used for passage practice, full-test practice, and both review screens. Paragraph blanks use the existing answer-save and scoring paths independently. Frontend production build and backend package checks pass; manual admin/practice/full-test scenarios remain before marking this feature fully verified.
 - Diagram Label Completion remains deferred until a durable image/asset source and authoring rule exist.
 
 ## Reference

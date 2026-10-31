@@ -118,3 +118,9 @@ Automatic answer-evidence highlighting is out of the launch MVP. This does not r
 ## Release boundary
 
 Launch the broad Reading experience with all controlled-choice, matching, and typed-completion forms above. The approved group metadata and matching-frame clarification are now part of the PDM/API contract. Diagram label completion is the sole named official form deferred by default because it adds durable image/alt-text/template authoring; it can be promoted only after a small asset workflow is approved during implementation.
+
+## Matching interaction implementation note — 2026-10-31
+
+The learner UI uses one assignment operation for drag-and-drop, click-to-select, and the narrow-screen select control. Every path submits the same stable candidate label through the existing answer callback and autosave contract. The selected-answer state is derived from the attempt answers, so clearing or replacing an answer also returns the previous candidate to the bank. The interface disables already-used candidates when reuse is off; the backend remains authoritative for candidate labels and reuse validation.
+
+**Điểm phỏng vấn:** Drag-and-drop is a progressive enhancement, not a separate business path. Reusing one assignment function avoids having mouse, keyboard, and mobile interactions produce different persisted values. Frontend availability state improves feedback, while backend validation remains necessary because a client can be bypassed or modified.

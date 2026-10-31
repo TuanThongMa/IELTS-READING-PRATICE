@@ -344,7 +344,7 @@ class ReadingTestPracticeController {
             ReviewPassage passage = passageById.get(passageId);
             ReviewGroup group = groups.get(groupId);
             if (group == null) {
-                group = new ReviewGroup(groupId, r.getString("question_type"), r.getString("task_variant"), r.getString("instructions"), r.getString("word_limit_mode"), candidates.getOrDefault(groupId, List.of()), PresentationTemplateCodec.read(r.getString("presentation_template")), new ArrayList<>());
+                group = new ReviewGroup(groupId, r.getString("question_type"), r.getString("task_variant"), r.getString("instructions"), r.getString("word_limit_mode"), candidates.getOrDefault(groupId, List.of()), PresentationTemplateCodec.forLearner(PresentationTemplateCodec.read(r.getString("presentation_template"))), new ArrayList<>());
                 groups.put(groupId, group);
                 passage.groups().add(group);
             }
@@ -384,7 +384,7 @@ class ReadingTestPracticeController {
                        q.passage_question_id,q.question_number,q.question_text,b.blank_text
                 FROM question_groups g JOIN passage_questions q ON q.question_group_id=g.question_group_id LEFT JOIN blank_questions b ON b.passage_question_id=q.passage_question_id
                 WHERE g.passage_id=? ORDER BY g.display_order,q.question_number
-                """, r -> { long id = r.getLong(1), qid = r.getLong(8); Group group = result.computeIfAbsent(id, k -> new Group(k, get(r,2), get(r,3), get(r,4), get(r,5), bool(r,6), candidates.getOrDefault(k, List.of()), PresentationTemplateCodec.read(get(r,7)), new ArrayList<>())); group.questions().add(new Question(qid, offset + r.getInt(9), get(r,10), get(r,11), choices.getOrDefault(qid, List.of()))); }, passageId);
+                """, r -> { long id = r.getLong(1), qid = r.getLong(8); Group group = result.computeIfAbsent(id, k -> new Group(k, get(r,2), get(r,3), get(r,4), get(r,5), bool(r,6), candidates.getOrDefault(k, List.of()), PresentationTemplateCodec.forLearner(PresentationTemplateCodec.read(get(r,7))), new ArrayList<>())); group.questions().add(new Question(qid, offset + r.getInt(9), get(r,10), get(r,11), choices.getOrDefault(qid, List.of()))); }, passageId);
         return List.copyOf(result.values());
     }
     private AttemptHeader accrue(AttemptHeader current, boolean recovered) {

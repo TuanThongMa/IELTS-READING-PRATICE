@@ -212,7 +212,8 @@ The reading-tools rail is deliberately quiet and contextual:
 
 - Selecting text in a passage opens a small contextual menu with `Tô sáng` and `Tra từ`. The menu is anchored to the selection and does not resize the reading/question panes.
 - A saved highlight belongs to the learner and immutable passage version, so it remains when the learner leaves and later reopens the passage. It stores the exact quote and a UTF-16 range; overlapping highlights are rejected. Clicking a saved highlight removes it.
-- Dictionary lookup is selection-based. The user may choose a returned sense and save the original selected form, selected-definition snapshot, and passage sentence as a private vocabulary note.
+- Dictionary lookup is selection-based. The user may choose a returned sense and save the original selected form and selected-definition snapshot as a private vocabulary note. Passage context is captured when available but is optional for a word entered from the vocabulary page.
+- A learner can edit the note's personal selected form, optional context, and custom meaning. Editing a note never mutates the shared dictionary entry, sense, pronunciation, or provider audio. The note owner is derived from the authenticated principal.
 
 Highlight, dictionary lookup, and vocabulary-note creation are unavailable during an active full-test session. In passage practice, highlights are available and persist across attempts. They are never used by the system as automatic answer evidence; finalized review supplies explanation text only.
 

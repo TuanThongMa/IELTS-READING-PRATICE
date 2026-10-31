@@ -40,6 +40,7 @@ class AdminQuestionGroupController {
     private static final Set<String> MATCHING = Set.of("MATCHING_INFORMATION", "MATCHING_HEADINGS", "MATCHING_FEATURES", "MATCHING_SENTENCE_ENDINGS");
     private static final Set<String> TEXT_COMPLETION = Set.of("SENTENCE_COMPLETION", "NOTE_COMPLETION", "TABLE_COMPLETION", "FLOW_CHART_COMPLETION", "SHORT_ANSWER");
     private static final Set<String> TEMPLATE_COMPLETION = Set.of("TABLE_COMPLETION", "FLOW_CHART_COMPLETION");
+    private static final Set<String> PARAGRAPH_TEMPLATE_COMPLETION = Set.of("SENTENCE_COMPLETION", "NOTE_COMPLETION", "SUMMARY_COMPLETION");
     private static final Map<String, String> WORD_LIMITS = Map.of(
             "ONE_WORD", "ONE WORD ONLY", "TWO_WORDS", "NO MORE THAN TWO WORDS",
             "TWO_WORDS_AND_ONE_NUMBER", "NO MORE THAN TWO WORDS AND/OR A NUMBER",
@@ -273,9 +274,14 @@ class AdminQuestionGroupController {
     private boolean usesSharedChoice(String variant, String inputMode) {
         return MATCHING.contains(variant) || ("SUMMARY_COMPLETION".equals(variant) && "SHARED_CHOICE_POOL".equals(inputMode));
     }
+    private boolean usesParagraphTemplate(GroupInput input, String variant) {
+        return input.presentationTemplate() != null && "PARAGRAPH".equals(input.presentationTemplate().kind())
+                && PARAGRAPH_TEMPLATE_COMPLETION.contains(variant) && isTextEntry(variant, input.answerInputMode());
+    }
     private String instructions(GroupInput input, String variant) {
         if (TEMPLATE_COMPLETION.contains(variant) || "SHORT_ANSWER".equals(variant)) return input.instructions().strip();
-        return isTextEntry(variant, input.answerInputMode()) ? WORD_LIMITS.get(input.wordLimitMode()) : input.instructions().strip();
+        return isTextEntry(variant, input.answerInputMode()) ? WORD_LIMITS.get(input.wordLimitMode())
+                : input.instructions() == null ? "" : input.instructions().strip();
     }
     private String normalize(String value) { return Normalizer.normalize(value, Normalizer.Form.NFC).strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT); }
 
@@ -389,15 +395,16 @@ class AdminQuestionGroupController {
         boolean multipleChoiceMultiple = "MULTIPLE_CHOICE_MULTIPLE".equals(variant);
         boolean blank = isTextEntry(variant, input.answerInputMode());
         boolean matching = usesSharedChoice(variant, input.answerInputMode());
-        boolean structured = TEMPLATE_COMPLETION.contains(variant);
-        boolean groupInstructionsRequired = structured || "SHORT_ANSWER".equals(variant) || multipleChoiceMultiple || (!blank && !multipleChoice && !matching);
+        boolean paragraphTemplate = usesParagraphTemplate(input, variant);
+        boolean structured = TEMPLATE_COMPLETION.contains(variant) || paragraphTemplate;
+        boolean groupInstructionsRequired = TEMPLATE_COMPLETION.contains(variant) || "SHORT_ANSWER".equals(variant) || multipleChoiceMultiple || (!blank && !multipleChoice && !matching);
         if (allowedAnswers == null && !multipleChoice && !multipleChoiceMultiple && !blank && !matching) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dạng câu hỏi không được hỗ trợ.");
         if ((blank ? input.wordLimitMode() == null || !WORD_LIMITS.containsKey(input.wordLimitMode()) : false)
                 || (groupInstructionsRequired && (input.instructions() == null || input.instructions().isBlank() || input.instructions().length() > 10_000))
                 || input.questions() == null || input.questions().isEmpty() || input.questions().size() > 40)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hướng dẫn hoặc danh sách câu hỏi không hợp lệ.");
         if (structured) validateTemplate(input.presentationTemplate(), variant, input.questions().size());
-        else if (input.presentationTemplate() != null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bố cục chỉ được dùng cho Table/Flow-chart Completion.");
+        else if (input.presentationTemplate() != null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bố cục không phù hợp với dạng câu hỏi.");
         Set<String> matchingLabels = new HashSet<>();
         Set<String> selectedLabels = new HashSet<>();
         if (matching) {
@@ -459,36 +466,57 @@ class AdminQuestionGroupController {
     }
 
     private void validateTemplate(PresentationTemplate template, String variant, int questionCount) {
-        String expectedKind = "TABLE_COMPLETION".equals(variant) ? "TABLE" : "FLOW_CHART";
+        String expectedKind = "TABLE_COMPLETION".equals(variant) ? "TABLE"
+                : "FLOW_CHART_COMPLETION".equals(variant) ? "FLOW_CHART" : "PARAGRAPH";
         if (template == null || template.version() != 1 || !expectedKind.equals(template.kind())
                 || (template.caption() != null && template.caption().length() > 300))
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bố cục bảng hoặc sơ đồ chưa hợp lệ.");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bố cục câu hỏi chưa hợp lệ.");
         Set<Integer> referencedQuestions = new HashSet<>();
         if ("TABLE".equals(expectedKind)) {
             if (template.columns() == null || template.columns().size() < 2 || template.columns().size() > 8
                     || template.columns().stream().anyMatch(column -> column == null || column.isBlank() || column.length() > 150)
-                    || template.rows() == null || template.rows().isEmpty() || template.rows().size() > 40 || template.steps() != null)
+                    || template.rows() == null || template.rows().isEmpty() || template.rows().size() > 40 || template.steps() != null || template.paragraphs() != null)
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bố cục bảng cần tiêu đề và các hàng có cùng số cột.");
             for (List<List<PresentationPart>> row : template.rows()) {
                 if (row == null || row.size() != template.columns().size()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mỗi hàng trong bảng phải khớp số cột.");
                 for (List<PresentationPart> cell : row) validateParts(cell, questionCount, referencedQuestions);
             }
-        } else {
-            if (template.steps() == null || template.steps().isEmpty() || template.steps().size() > 40 || template.columns() != null || template.rows() != null)
+        } else if ("FLOW_CHART".equals(expectedKind)) {
+            if (template.steps() == null || template.steps().isEmpty() || template.steps().size() > 40 || template.columns() != null || template.rows() != null || template.paragraphs() != null)
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Flow-chart cần có ít nhất một bước theo thứ tự.");
             for (List<PresentationPart> step : template.steps()) validateParts(step, questionCount, referencedQuestions);
+        } else {
+            int totalParts = template.paragraphs() == null ? 0 : template.paragraphs().stream().filter(java.util.Objects::nonNull).mapToInt(List::size).sum();
+            if (template.caption() != null || template.columns() != null || template.rows() != null || template.steps() != null
+                    || template.paragraphs() == null || template.paragraphs().isEmpty() || template.paragraphs().size() > 40
+                    || totalParts > 200 || template.paragraphs().stream().anyMatch(paragraph -> paragraph == null || paragraph.isEmpty() || paragraph.size() > 100))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bố cục đoạn văn cần có nội dung và không vượt giới hạn.");
+            for (List<PresentationPart> paragraph : template.paragraphs()) validateParts(paragraph, questionCount, referencedQuestions, 100);
+            int expectedQuestionIndex = 0;
+            for (List<PresentationPart> paragraph : template.paragraphs()) {
+                for (PresentationPart part : paragraph) {
+                    if (part.questionIndex() != null && part.questionIndex() != expectedQuestionIndex++)
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Các ô câu hỏi trong đoạn phải theo đúng thứ tự đánh số.");
+                }
+            }
         }
         if (referencedQuestions.size() != questionCount)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mỗi ô câu hỏi phải xuất hiện đúng một lần trong bố cục.");
     }
 
     private void validateParts(List<PresentationPart> parts, int questionCount, Set<Integer> referencedQuestions) {
-        if (parts == null || parts.isEmpty() || parts.size() > 20) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Một ô nội dung không được để trống.");
+        validateParts(parts, questionCount, referencedQuestions, 20);
+    }
+
+    private void validateParts(List<PresentationPart> parts, int questionCount, Set<Integer> referencedQuestions, int maxParts) {
+        if (parts == null || parts.isEmpty() || parts.size() > maxParts) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Một ô nội dung không được để trống hoặc vượt giới hạn.");
         for (PresentationPart part : parts) {
             if (part == null || (part.text() == null) == (part.questionIndex() == null))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mỗi phần nội dung cần là văn bản hoặc một ô câu hỏi.");
-            if (part.text() != null && (part.text().length() > 2000 || part.text().isBlank()))
+            if (part.text() != null && (part.text().length() > 2000 || part.text().isBlank() || part.sourceText() != null))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nội dung ô vượt quá giới hạn hoặc đang trống.");
+            if (part.sourceText() != null && (part.questionIndex() == null || part.sourceText().isBlank() || part.sourceText().length() > 2000))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Văn bản gốc của ô trống chưa hợp lệ.");
             if (part.questionIndex() != null && (part.questionIndex() < 0 || part.questionIndex() >= questionCount || !referencedQuestions.add(part.questionIndex())))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ô câu hỏi bị thiếu, trùng hoặc không tồn tại.");
         }
@@ -506,7 +534,8 @@ class AdminQuestionGroupController {
             List<QuestionInput> questions = new ArrayList<>();
             for (QuestionView q : group.questions()) {
                 if (!seenQuestions.add(q.id()) || q.questionNumber() != expectedNumber++) issues.add("Thứ tự câu hỏi hoặc số đáp án đúng không hợp lệ. Hãy kiểm tra nhóm câu hỏi.");
-                questions.add(new QuestionInput(q.id(), q.questionText(), q.answer(), q.explanation(), q.options(), q.blankText(), q.alternatives()));
+                String answer = "MULTIPLE_CHOICE_MULTIPLE".equals(group.taskVariant()) ? "" : q.answer();
+                questions.add(new QuestionInput(q.id(), q.questionText(), answer, q.explanation(), q.options(), q.blankText(), q.alternatives()));
                 if ("MULTIPLE_CHOICE_MULTIPLE".equals(group.taskVariant())) {
                     int correct = jdbc.queryForObject("SELECT COUNT(*) FROM question_answer_options WHERE passage_question_id = ? AND is_correct = true", Integer.class, q.id());
                     if (correct != group.questions().size()) issues.add("Nhóm chọn nhiều đáp án cần có một tập đáp án đúng đủ số ô câu hỏi.");

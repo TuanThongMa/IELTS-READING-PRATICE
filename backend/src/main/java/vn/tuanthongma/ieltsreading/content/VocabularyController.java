@@ -39,6 +39,7 @@ class VocabularyController {
     record CreateCategory(String name) {}
     record CreateNote(Long senseId, String selectedText, String contextSentence, String customMeaning,
                       Long passageId, List<Long> categoryIds) {}
+    record UpdateNote(String selectedText, String contextSentence, String customMeaning) {}
     record StatusChange(String reviewStatus) {}
     record CreatedNote(long id) {}
 
@@ -105,7 +106,7 @@ class VocabularyController {
         String selectedText = input.selectedText() == null ? "" : input.selectedText().strip();
         String context = input.contextSentence() == null ? "" : input.contextSentence().strip();
         String customMeaning = input.customMeaning() == null ? null : input.customMeaning().strip();
-        if (selectedText.isBlank() || selectedText.length() > 200 || context.isBlank() || context.length() > 4000
+        if (selectedText.isBlank() || selectedText.length() > 200 || context.length() > 4000
                 || (customMeaning != null && customMeaning.length() > 2000)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thông tin ghi chú chưa hợp lệ.");
         long userId = userId(principal);
         if (hasActiveRealTest(userId)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Không thể lưu từ trong chế độ thi thật.");
@@ -123,13 +124,33 @@ class VocabularyController {
         Long noteId = jdbc.queryForObject("""
                 INSERT INTO vocabulary_notes (user_id, vocabulary_entry_id, vocabulary_sense_id, passage_id, selected_text, context_sentence,
                                               custom_meaning, selected_definition)
-                SELECT ?, s.vocabulary_entry_id, s.vocabulary_sense_id, ?, ?, ?, ?, m.definition_text
+                SELECT ?, s.vocabulary_entry_id, s.vocabulary_sense_id, ?, ?, NULLIF(?, ''), ?, m.definition_text
                 FROM vocabulary_senses s JOIN vocabulary_meanings m ON m.vocabulary_meaning_id = s.vocabulary_meaning_id
                 WHERE s.vocabulary_sense_id = ?
                 RETURNING vocabulary_note_id
                 """, Long.class, userId, input.passageId(), selectedText, context, blankToNull(customMeaning), input.senseId());
         for (Long categoryId : categoryIds) jdbc.update("INSERT INTO note_categories (user_id, vocabulary_note_id, category_id) VALUES (?, ?, ?)", userId, noteId, categoryId);
         return new CreatedNote(noteId);
+    }
+
+    @PatchMapping("/vocabulary-notes/{noteId}")
+    @Transactional
+    void updateNote(@PathVariable long noteId, @RequestBody UpdateNote input, Principal principal) {
+        if (input == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thông tin ghi chú chưa hợp lệ.");
+        String selectedText = input.selectedText() == null ? "" : input.selectedText().strip();
+        String context = input.contextSentence() == null ? "" : input.contextSentence().strip();
+        String customMeaning = input.customMeaning() == null ? null : input.customMeaning().strip();
+        if (selectedText.isBlank() || selectedText.length() > 200 || context.length() > 4000
+                || (customMeaning != null && customMeaning.length() > 2000))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thông tin ghi chú chưa hợp lệ.");
+        long userId = userId(principal);
+        if (hasActiveRealTest(userId)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Không thể sửa từ trong chế độ thi thật.");
+        int updated = jdbc.update("""
+                UPDATE vocabulary_notes
+                SET selected_text = ?, context_sentence = NULLIF(?, ''), custom_meaning = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE vocabulary_note_id = ? AND user_id = ?
+                """, selectedText, context, blankToNull(customMeaning), noteId, userId);
+        if (updated == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy ghi chú từ vựng.");
     }
 
     @PatchMapping("/vocabulary-notes/{noteId}/status")

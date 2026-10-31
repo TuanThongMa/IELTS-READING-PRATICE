@@ -102,7 +102,7 @@ class PracticeResultController {
             long groupId = r.getLong("question_group_id"), questionId = r.getLong("passage_question_id");
             Group group = groups.get(groupId);
             if (group == null) {
-                group = new Group(groupId, r.getString("question_type"), r.getString("task_variant"), r.getString("instructions"), r.getString("word_limit_mode"), candidates.getOrDefault(groupId, List.of()), PresentationTemplateCodec.read(r.getString("presentation_template")), new ArrayList<>());
+                group = new Group(groupId, r.getString("question_type"), r.getString("task_variant"), r.getString("instructions"), r.getString("word_limit_mode"), candidates.getOrDefault(groupId, List.of()), PresentationTemplateCodec.forLearner(PresentationTemplateCodec.read(r.getString("presentation_template"))), new ArrayList<>());
                 groups.put(groupId, group);
             }
             String family = group.family(), answer = r.getString("submitted_value");

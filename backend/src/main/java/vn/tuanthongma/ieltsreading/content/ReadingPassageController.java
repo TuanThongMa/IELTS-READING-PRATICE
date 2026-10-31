@@ -83,7 +83,7 @@ class ReadingPassageController {
                 """, r -> {
             long groupId = r.getLong("question_group_id"), questionId = r.getLong("passage_question_id");
             Group group = groups.computeIfAbsent(groupId, key -> {
-                try { return new Group(key, r.getString("task_variant"), r.getString("answer_input_mode"), r.getString("instructions"), r.getString("word_limit_mode"), r.getBoolean("candidate_reuse"), candidates.getOrDefault(key, List.of()), PresentationTemplateCodec.read(r.getString("presentation_template")), new ArrayList<>()); }
+                try { return new Group(key, r.getString("task_variant"), r.getString("answer_input_mode"), r.getString("instructions"), r.getString("word_limit_mode"), r.getBoolean("candidate_reuse"), candidates.getOrDefault(key, List.of()), PresentationTemplateCodec.forLearner(PresentationTemplateCodec.read(r.getString("presentation_template"))), new ArrayList<>()); }
                 catch (java.sql.SQLException e) { throw new IllegalStateException(e); }
             });
             group.questions().add(new Question(questionId, r.getInt("question_number"), r.getString("question_text"), r.getString("blank_text"), choices.getOrDefault(questionId, List.of())));

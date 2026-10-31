@@ -3,7 +3,7 @@ import { Link, useBlocker, useNavigate, useParams, useSearchParams } from "react
 import { api } from "../../api";
 import { PassageText } from "./ReadingPage";
 import { answerErrorsFor, answerWordLimitError, type WordLimitMode } from "./answerTextPolicy";
-import { supportsTaskContent, TaskQuestionInputs, TaskQuestionReview, type TaskTemplate } from "./ReadingTaskContent";
+import { MatchingQuestionInputs, supportsMatchingInteraction, supportsTaskContent, TaskQuestionInputs, TaskQuestionReview, type TaskTemplate } from "./ReadingTaskContent";
 import styles from "./ReadingPage.module.css";
 import resultStyles from "./ReadingResult.module.css";
 
@@ -79,8 +79,10 @@ export function ReadingTest() {
           <div className={styles.previewNote}><strong>Passage {passage.partNumber}</strong><br />Câu trả lời tự lưu; đồng hồ vẫn chạy khi bạn chuyển tab.</div>
             {passage.groups.map(group => <section className={styles.group} key={group.id}>
   <h2>Questions {group.questions[0]?.number}–{group.questions.at(-1)?.number}</h2><p className={styles.instructions}>{group.instructions}</p>
-  {supportsTaskContent(group.variant)
+  {supportsTaskContent(group.variant, group.presentationTemplate)
     ? <TaskQuestionInputs group={group} answers={answers} errors={answerErrors} onAnswer={answer} questionIdPrefix="test-question-" />
+    : supportsMatchingInteraction(group.variant)
+      ? <MatchingQuestionInputs group={group} answers={answers} onAnswer={answer} questionIdPrefix="test-question-" />
     : <>
       {group.candidates.length > 0 && <div className={styles.candidates}><strong>Danh sách lựa chọn</strong><ul>{group.candidates.map(choice => <li key={choice.label}><b>{choice.label}.</b> {choice.text}</li>)}</ul></div>}
       {group.questions.map(question => { const answerError = answerErrors[question.id]; return <article className={styles.question} id={`test-question-${question.number}`} key={question.id}><span className={styles.number}>{question.number}</span><div className={styles.questionBody}><p>{question.text}{group.answerInputMode === "TEXT_ENTRY" && <> <input className={styles.blank} value={answers[question.id] || ""} onChange={event => answer(question.id, event.target.value)} aria-label={`Câu trả lời ${question.number}`} aria-invalid={!!answerError} aria-describedby={answerError ? `test-answer-error-${question.id}` : undefined} /> {question.afterBlank}{answerError && <span id={`test-answer-error-${question.id}`} className={styles.answerError} role="alert">{answerError}</span>}</>}</p>{group.candidates.length > 0 ? <select value={answers[question.id] || ""} onChange={event => answer(question.id, event.target.value)}><option value="">Chọn đáp án</option>{group.candidates.map(choice => <option value={choice.label} key={choice.label}>{choice.label} — {choice.text}</option>)}</select> : question.choices.length > 0 && <fieldset><legend className={styles.srOnly}>Câu {question.number}</legend>{question.choices.map(choice => <label className={styles.option} key={choice.label}><input type="radio" name={`test-${question.id}`} checked={answers[question.id] === choice.label} onChange={() => answer(question.id, choice.label)} /> {group.variant === "MULTIPLE_CHOICE_SINGLE" ? `${choice.label}. ` : ""}{choice.text}</label>)}</fieldset>}</div></article>; })}
@@ -167,7 +169,7 @@ export function ReadingTestResult() {
           <div className={styles.previewNote}><strong>Passage {passage.partNumber}</strong><br />Đáp án và kết quả từng câu của bạn.</div>
           {passage.groups.map(group => <section className={styles.group} key={group.id}>
   <h2>Questions {group.questions[0]?.number}{group.questions.length > 1 ? "–" + group.questions[group.questions.length - 1].number : ""}</h2><p className={styles.instructions}>{group.instructions}</p>
-  {supportsTaskContent(group.variant)
+  {supportsTaskContent(group.variant, group.presentationTemplate)
     ? <TaskQuestionReview group={group} questionIdPrefix="full-review-question-" />
     : <>
       {group.candidates.length > 0 && <div className={styles.candidates}><strong>Danh sách lựa chọn</strong><ul>{group.candidates.map(candidate => <li key={candidate.label}><b>{candidate.label}.</b> {candidate.text}</li>)}</ul></div>}

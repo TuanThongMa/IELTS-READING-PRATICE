@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { AudioButton } from "../../components/AudioButton";
 import { AppHeader, type AccountUser } from "../../components/AppHeader";
 import { answerErrorsFor, answerWordLimitError, type WordLimitMode } from "./answerTextPolicy";
-import { supportsTaskContent, TaskQuestionInputs, TaskQuestionReview, type TaskTemplate } from "./ReadingTaskContent";
+import { MatchingQuestionInputs, supportsMatchingInteraction, supportsTaskContent, TaskQuestionInputs, TaskQuestionReview, type TaskTemplate } from "./ReadingTaskContent";
 import styles from "./ReadingPage.module.css";
 
 type ReadingMode = "PRACTICE" | "REAL_TEST";
@@ -534,8 +534,10 @@ export function ReadingPassage() {
     <section ref={questionsPane} aria-label="Câu hỏi" className={`${styles.pane} ${styles.questionsPane} ${tab === "reading" ? styles.mobileHidden : ""}`}><div className={styles.questionsContent}><p className={styles.previewNote}>Câu trả lời được lưu tự động. Đồng hồ vẫn chạy khi bạn chuyển tab và thời lượng được lưu định kỳ mỗi 15 giây.</p>{clockSaveError && <p className={styles.clockWarning} role="alert">Chưa lưu được thời gian gần nhất. Hệ thống sẽ thử lại ở mốc tiếp theo.</p>}{passage.groups.map(group => <section className={styles.group} key={group.id}>
   <h2>Questions {group.questions[0]?.number}{group.questions.length > 1 ? `–${group.questions[group.questions.length - 1].number}` : ""}</h2>
   <p className={styles.instructions}>{group.instructions}</p>
-  {supportsTaskContent(group.variant)
+  {supportsTaskContent(group.variant, group.presentationTemplate)
     ? <TaskQuestionInputs group={group} answers={answers} errors={answerErrors} onAnswer={updateAnswer} />
+    : supportsMatchingInteraction(group.variant)
+      ? <MatchingQuestionInputs group={group} answers={answers} onAnswer={updateAnswer} />
     : <>
       {group.candidates.length > 0 && <div className={styles.candidates}><strong>Danh sách lựa chọn</strong><ul>{group.candidates.map(c => <li key={c.label}><b>{c.label}.</b> {c.text}</li>)}</ul>{group.candidateReuse && <p>Một lựa chọn có thể được sử dụng nhiều lần.</p>}</div>}
       {group.questions.map(q => { const answerError = answerErrors[q.id]; return <article className={styles.question} id={`question-${q.number}`} key={q.id}><span className={styles.number}>{q.number}</span><div className={styles.questionBody}><p>{q.text}{group.answerInputMode === "TEXT_ENTRY" && <> <input aria-label={`Câu trả lời ${q.number}`} aria-invalid={!!answerError} aria-describedby={answerError ? `answer-error-${q.id}` : undefined} className={styles.blank} placeholder="Đáp án" maxLength={1000} value={answers[q.id] || ""} onChange={e => updateAnswer(q.id, e.target.value)} /> {q.afterBlank}{answerError && <span id={`answer-error-${q.id}`} className={styles.answerError} role="alert">{answerError}</span>}</>}</p>{group.candidates.length > 0 ? <select aria-label={`Đáp án câu ${q.number}`} value={answers[q.id] || ""} onChange={e => updateAnswer(q.id, e.target.value)}><option value="">Chọn đáp án</option>{group.candidates.map(c => <option key={c.label} value={c.label}>{c.label} — {c.text}</option>)}</select> : q.choices.length > 0 && <fieldset><legend className={styles.srOnly}>Lựa chọn câu {q.number}</legend>{q.choices.map(c => <label className={styles.option} key={c.label}><input type="radio" name={`question-${q.id}`} checked={answers[q.id] === c.label} onChange={() => updateAnswer(q.id, c.label)} /> <span>{group.variant === "MULTIPLE_CHOICE_SINGLE" ? `${c.label}. ` : ""}{c.text}</span></label>)}{answers[q.id] && <button type="button" className={styles.clearAnswer} onClick={() => updateAnswer(q.id, "")}>Bỏ chọn</button>}</fieldset>}</div></article>; })}

@@ -1,6 +1,6 @@
 # IELTS Academic Reading System — Implementation Roadmap
 
-Last updated: 2026-10-28
+Last updated: 2026-10-31
 
 ## 1. Planning principles
 
@@ -482,6 +482,8 @@ These follow-ups are in project scope, but remain outside the current MVP exit g
 - Apply the same interaction in standalone practice and full-test practice; the result review must continue to show selected and correct answers clearly.
 - Acceptance: mouse, keyboard, narrow layout, reassignment, no-reuse/reuse rules, autosave, and review all preserve the same stable answer label.
 
+Implementation update on 2026-10-31: a shared matching control is in place for standalone and full-test practice. It uses the approved `global.css` color and font variables, native drag-and-drop on desktop with click/keyboard assignment, and the existing labelled select control on narrow screens. Frontend production build passed; manual interaction validation remains.
+
 ### B2 — Close the remaining IELTS Academic Reading task-type gaps
 
 Official IELTS Academic materials include multiple choice (one or more answers), identifying information, identifying writers' claims, matching information/headings/features/sentence endings, sentence completion, summary/note/table/flow-chart completion, diagram labelling, and short answers.
@@ -494,7 +496,7 @@ Status on 2026-10-28: the approved first implementation pass is complete for Mul
 - Learner task components are shared by standalone practice, full-test practice, and result review. Admin can author and preview the structured table/flow layout.
 - Diagram Label Completion remains deferred until a durable image-asset workflow with alt text and stable references exists.
 
-Frontend and backend build checks passed on 2026-10-28. The owner still needs to manually verify admin authoring, answer saving, scoring, and review before this backlog item is fully validated.
+Frontend and backend build checks passed on 2026-10-28. On 2026-10-31, a PostgreSQL integration test created and reloaded all currently supported task variants, published the passage, and verified the learner-facing passage API; it also caught and fixed a Multiple Choice (Multiple Answers) publish-validation defect. Paragraph-based completion places its text in the question group; admins paste a paragraph and select words to create separately numbered/scored blanks. The owner still needs to manually verify the admin screens, passage/full-test answer saving, scoring, and review before B2 is fully validated.
 
 ### B3 — Admin-assisted PDF import for passages and full tests
 
@@ -541,7 +543,12 @@ Minimum edge-case checklist for every feature:
 
 ## 8. Immediate next actions
 
-1. Manually author a draft containing one example of each new task type; verify the preview, question numbering, edit/delete behavior, and publish validation.
-2. Exercise each type in standalone practice and full-test practice, including autosave, scoring, submitted results, and review.
-3. Record and fix any issues found before starting another implementation slice.
-4. Then choose the next backlog item with the owner; the remaining named items include accessible drag-and-drop matching and the Admin PDF-import tool. Keep Diagram Label Completion deferred until an image source is available.
+1. **Manual UI walkthrough — pending:** for B2, author one example of each new type and verify preview, numbering, edit/delete, and publish validation; exercise passage and full-test autosave, scoring, submission, and review. For B1, verify drag, click/keyboard assignment, reassignment/clear, reuse/no-reuse, mobile select, autosave, and review. PostgreSQL API integration coverage already verifies create, admin reload, publish, and learner reload.
+2. Fix and record issues from the walkthrough before starting another implementation slice.
+3. B1 design was approved and implementation completed on 2026-10-31; the production build passes. Close it after manual validation and any resulting fixes.
+4. Implement B3 admin-assisted import for text-based PDFs, preserving source references and requiring admin confirmation before draft save/publish.
+5. Complete Phase 10 reliability, security, performance, accessibility, and end-to-end QA; add the previously deferred PostgreSQL integration tests when scheduled.
+6. Complete Phase 11 deployment, seeded demonstration, backup/rollback notes, API/setup documentation, and thesis evidence.
+7. Keep Diagram Label Completion deferred until an approved, durable image source is available.
+
+The last local runtime check on 2026-10-31 confirmed Docker Compose API health `UP`, PostgreSQL healthy, Flyway version 19, and `vocabulary_notes.context_sentence` nullable. It did not validate authenticated UI workflows because an owner-authorized admin walkthrough is still required.
