@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,7 @@ class VocabularyController {
     }
 
     record Category(long id, String name, long noteCount) {}
+    record NoteSummary(long total, long newCount, long learningCount, long masteredCount) {}
     record Note(long id, long entryId, String word, String selectedText, String pronunciation, String audioUrl, String selectedDefinition,
                 String customMeaning, String contextSentence, Long passageId, String passageTitle,
                 String reviewStatus, String createdAt) {}
@@ -41,7 +43,8 @@ class VocabularyController {
                       Long passageId, List<Long> categoryIds) {}
     record UpdateNote(String selectedText, String contextSentence, String customMeaning) {}
     record StatusChange(String reviewStatus) {}
-    record CreatedNote(long id) {}
+    record CreatedNote(long id, boolean created, int addedCategoryCount) {}
+    private record ExistingNote(long id, String customMeaning) {}
 
     @GetMapping("/vocabulary/lookup")
     List<DictionaryLookupService.Entry> lookup(@RequestParam String word, Principal principal) {
@@ -93,15 +96,25 @@ class VocabularyController {
         return findNotes(userId(principal), categoryId, reviewStatus, query, 200);
     }
 
+    @GetMapping("/vocabulary-notes/summary")
+    NoteSummary noteSummary(Principal principal) {
+        return jdbc.queryForObject("""
+                SELECT COUNT(*),
+                       COUNT(*) FILTER (WHERE review_status = 'NEW'),
+                       COUNT(*) FILTER (WHERE review_status = 'LEARNING'),
+                       COUNT(*) FILTER (WHERE review_status = 'MASTERED')
+                FROM vocabulary_notes WHERE user_id = ?
+                """, (r, n) -> new NoteSummary(r.getLong(1), r.getLong(2), r.getLong(3), r.getLong(4)), userId(principal));
+    }
+
     @GetMapping("/vocabulary-notes/recent")
     List<Note> recentNotes(Principal principal, @RequestParam(defaultValue = "5") int limit) {
         return findNotes(userId(principal), null, null, null, Math.max(1, Math.min(10, limit)));
     }
 
     @PostMapping("/vocabulary-notes")
-    @ResponseStatus(HttpStatus.CREATED)
     @Transactional
-    CreatedNote createNote(@RequestBody CreateNote input, Principal principal) {
+    ResponseEntity<CreatedNote> createNote(@RequestBody CreateNote input, Principal principal) {
         if (input == null || input.senseId() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hãy chọn một nghĩa của từ.");
         String selectedText = input.selectedText() == null ? "" : input.selectedText().strip();
         String context = input.contextSentence() == null ? "" : input.contextSentence().strip();
@@ -121,16 +134,25 @@ class VocabularyController {
             if (categoryId == null || jdbc.queryForObject("SELECT COUNT(*) FROM categories WHERE category_id = ? AND user_id = ?", Integer.class, categoryId, userId) != 1)
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Một danh mục được chọn không hợp lệ.");
         }
-        Long noteId = jdbc.queryForObject("""
+        ExistingNote existing = findExistingNote(userId, input.senseId(), input.passageId(), context);
+        if (existing != null) {
+            checkCustomMeaning(existing, blankToNull(customMeaning));
+            return ResponseEntity.ok(new CreatedNote(existing.id(), false, addCategories(userId, existing.id(), categoryIds)));
+        }
+        int inserted = jdbc.update("""
                 INSERT INTO vocabulary_notes (user_id, vocabulary_entry_id, vocabulary_sense_id, passage_id, selected_text, context_sentence,
                                               custom_meaning, selected_definition)
                 SELECT ?, s.vocabulary_entry_id, s.vocabulary_sense_id, ?, ?, NULLIF(?, ''), ?, m.definition_text
                 FROM vocabulary_senses s JOIN vocabulary_meanings m ON m.vocabulary_meaning_id = s.vocabulary_meaning_id
                 WHERE s.vocabulary_sense_id = ?
-                RETURNING vocabulary_note_id
-                """, Long.class, userId, input.passageId(), selectedText, context, blankToNull(customMeaning), input.senseId());
-        for (Long categoryId : categoryIds) jdbc.update("INSERT INTO note_categories (user_id, vocabulary_note_id, category_id) VALUES (?, ?, ?)", userId, noteId, categoryId);
-        return new CreatedNote(noteId);
+                ON CONFLICT DO NOTHING
+                """, userId, input.passageId(), selectedText, context, blankToNull(customMeaning), input.senseId());
+        ExistingNote saved = findExistingNote(userId, input.senseId(), input.passageId(), context);
+        if (saved == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Không tìm thấy ghi chú vừa lưu. Hãy thử lại.");
+        if (inserted == 0) checkCustomMeaning(saved, blankToNull(customMeaning));
+        int addedCategories = addCategories(userId, saved.id(), categoryIds);
+        CreatedNote result = new CreatedNote(saved.id(), inserted == 1, addedCategories);
+        return inserted == 1 ? ResponseEntity.status(HttpStatus.CREATED).body(result) : ResponseEntity.ok(result);
     }
 
     @PatchMapping("/vocabulary-notes/{noteId}")
@@ -145,12 +167,45 @@ class VocabularyController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thông tin ghi chú chưa hợp lệ.");
         long userId = userId(principal);
         if (hasActiveRealTest(userId)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Không thể sửa từ trong chế độ thi thật.");
-        int updated = jdbc.update("""
-                UPDATE vocabulary_notes
-                SET selected_text = ?, context_sentence = NULLIF(?, ''), custom_meaning = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE vocabulary_note_id = ? AND user_id = ?
-                """, selectedText, context, blankToNull(customMeaning), noteId, userId);
+        int updated;
+        try {
+            updated = jdbc.update("""
+                    UPDATE vocabulary_notes
+                    SET selected_text = ?, context_sentence = NULLIF(?, ''), custom_meaning = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE vocabulary_note_id = ? AND user_id = ?
+                    """, selectedText, context, blankToNull(customMeaning), noteId, userId);
+        } catch (DuplicateKeyException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Ghi chú này đã có trong sổ từ vựng.");
+        }
         if (updated == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy ghi chú từ vựng.");
+    }
+
+    private ExistingNote findExistingNote(long userId, long senseId, Long passageId, String context) {
+        List<ExistingNote> matches = jdbc.query("""
+                SELECT vocabulary_note_id, custom_meaning
+                FROM vocabulary_notes
+                WHERE user_id = ? AND vocabulary_sense_id = ?
+                  AND COALESCE(passage_id, 0) = COALESCE(?, 0)
+                  AND COALESCE(context_sentence, '') = ?
+                ORDER BY vocabulary_note_id DESC LIMIT 1
+                """, (r, n) -> new ExistingNote(r.getLong(1), r.getString(2)), userId, senseId, passageId, context);
+        return matches.isEmpty() ? null : matches.getFirst();
+    }
+
+    private void checkCustomMeaning(ExistingNote existing, String requestedMeaning) {
+        if (requestedMeaning != null && !requestedMeaning.equals(existing.customMeaning()))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Từ này đã có trong sổ. Hãy sửa ghi chú đã lưu để thay đổi nội dung.");
+    }
+
+    private int addCategories(long userId, long noteId, List<Long> categoryIds) {
+        int added = 0;
+        for (Long categoryId : categoryIds) {
+            added += jdbc.update("""
+                    INSERT INTO note_categories (user_id, vocabulary_note_id, category_id)
+                    VALUES (?, ?, ?) ON CONFLICT DO NOTHING
+                    """, userId, noteId, categoryId);
+        }
+        return added;
     }
 
     @PatchMapping("/vocabulary-notes/{noteId}/status")

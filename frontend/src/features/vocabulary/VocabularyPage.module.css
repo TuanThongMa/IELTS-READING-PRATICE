@@ -77,6 +77,7 @@
 .expanded { background: #fbfdff; }
 .empty { padding: 38px 20px; border-top: 1px solid var(--border); color: var(--text-secondary); text-align: center; }
 .pageMessage { margin: 0; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--danger-bg); color: var(--danger); font-size: 12px; }
+.pageNotice { margin: 0; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--success-bg); color: var(--success); font-size: 12px; }
 .empty strong { display: block; color: var(--text); }
 .empty p { max-width: 460px; margin: 8px auto 18px; font-size: 13px; line-height: 1.6; }
 .empty button { margin: 0 auto; }
@@ -107,6 +108,7 @@
 .categoryChecks legend { margin-bottom: 8px; color: var(--text); font-size: 13px; font-weight: 600; }
 .categoryChecks label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
 .categoryChecks input { width: auto; accent-color: var(--primary); }
+.categoryHint { margin: 8px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .drawer form footer { position: sticky; bottom: -26px; display: flex; justify-content: flex-end; gap: 9px; margin: auto -22px -26px; padding: 12px 22px; border-top: 1px solid var(--border); background: var(--surface); }
 .flashcard { align-self: center; width: min(500px, calc(100% - 30px)); margin: auto; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 18px 50px rgb(15 23 42 / 20%); }
 .previewPanel { display: flex; flex-direction: column; width: min(620px, calc(100% - 28px)); max-height: min(84vh, 760px); align-self: center; margin: auto; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 18px 50px rgb(15 23 42 / 20%); }

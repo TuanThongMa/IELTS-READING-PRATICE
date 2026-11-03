@@ -5,6 +5,10 @@ spring:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
 
 server:
   servlet:
@@ -27,3 +31,9 @@ management:
 dictionary:
   merriam-webster:
     api-key: ${DICTIONARY_MW_API_KEY:}
+
+pdf-import:
+  storage-dir: ${PDF_IMPORT_STORAGE_DIR:./data/pdf-imports}
+  cli-jar: ${PDF_IMPORT_CLI_JAR:}
+  hybrid-url: ${PDF_IMPORT_HYBRID_URL:http://localhost:5002}
+  worker-enabled: ${PDF_IMPORT_WORKER_ENABLED:true}

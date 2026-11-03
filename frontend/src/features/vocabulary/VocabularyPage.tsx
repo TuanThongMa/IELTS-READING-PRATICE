@@ -9,11 +9,14 @@ type RelatedWord = { word: string; relationType: "SYNONYM" | "ANTONYM" };
 type Sense = { id: number; partOfSpeech: string; phoneticText: string | null; audioUrl: string | null; definition: string; example: string | null; relatedWords: RelatedWord[] };
 type Entry = { id: number; word: string; sourceUrl: string; senses: Sense[] };
 type Note = { id: number; entryId: number; word: string; selectedText: string; pronunciation: string | null; audioUrl: string | null; selectedDefinition: string; customMeaning: string | null; contextSentence: string | null; passageId: number | null; passageTitle: string | null; reviewStatus: "NEW" | "LEARNING" | "MASTERED"; createdAt: string };
+type SavedNote = { id: number; created: boolean; addedCategoryCount: number };
+type NoteSummary = { total: number; newCount: number; learningCount: number; masteredCount: number };
 const statusLabels = { NEW: "Chưa thuộc", LEARNING: "Nhớ sơ sơ", MASTERED: "Đã thuộc" } as const;
 
 export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout: () => void | Promise<void> }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [summary, setSummary] = useState<NoteSummary>({ total: 0, newCount: 0, learningCount: 0, masteredCount: 0 });
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [query, setQuery] = useState("");
@@ -34,6 +37,7 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
   const [saveMessage, setSaveMessage] = useState("");
   const [pageMessage, setPageMessage] = useState("");
+  const [pageNotice, setPageNotice] = useState("");
   const [expandedNote, setExpandedNote] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [studyIndex, setStudyIndex] = useState<number | null>(null);
@@ -42,13 +46,15 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
   async function load() {
     setLoadState("loading");
     try {
-      const [categoryResponse, noteResponse] = await Promise.all([
+      const [categoryResponse, noteResponse, summaryResponse] = await Promise.all([
         api("/api/vocabulary/categories"),
         api(`/api/vocabulary-notes${categoryId ? `?categoryId=${categoryId}` : ""}`),
+        api("/api/vocabulary-notes/summary"),
       ]);
-      if (!categoryResponse.ok || !noteResponse.ok) throw new Error();
+      if (!categoryResponse.ok || !noteResponse.ok || !summaryResponse.ok) throw new Error();
       setCategories(await categoryResponse.json() as Category[]);
       setNotes(await noteResponse.json() as Note[]);
+      setSummary(await summaryResponse.json() as NoteSummary);
       setLoadState("ready");
     } catch { setLoadState("error"); }
   }
@@ -62,11 +68,17 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
     return matchesStatus && matchesQuery;
   }), [notes, query, statusFilter]);
   const totals = useMemo(() => ({
-    total: notes.length,
-    NEW: notes.filter(note => note.reviewStatus === "NEW").length,
-    LEARNING: notes.filter(note => note.reviewStatus === "LEARNING").length,
-    MASTERED: notes.filter(note => note.reviewStatus === "MASTERED").length,
-  }), [notes]);
+    total: summary.total,
+    NEW: summary.newCount,
+    LEARNING: summary.learningCount,
+    MASTERED: summary.masteredCount,
+  }), [summary]);
+
+  function openNewNote() {
+    setEditingNote(null); setTerm(""); setContext(""); setCustomMeaning(""); setEntries([]);
+    setSelectedSenseId(null); setSelectedCategories(categoryId === null ? [] : [categoryId]);
+    setLookupState("idle"); setSaveState("idle"); setSaveMessage(""); setDrawerOpen(true);
+  }
 
   async function createCategory(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setCategoryError("");
@@ -105,14 +117,16 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
   }
 
   async function saveNote(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setSaveState("saving"); setSaveMessage("");
+    event.preventDefault(); setSaveState("saving"); setSaveMessage(""); setPageNotice(""); setPageMessage("");
     try {
       const response = editingNote
         ? await api(`/api/vocabulary-notes/${editingNote.id}`, "PATCH", { selectedText: term.trim(), contextSentence: context.trim(), customMeaning: customMeaning.trim() || null })
         : await api("/api/vocabulary-notes", "POST", { senseId: selectedSenseId, selectedText: term.trim(), contextSentence: context.trim(), customMeaning: customMeaning.trim() || null, categoryIds: selectedCategories });
-      if (!response.ok) { setSaveState("error"); setSaveMessage(editingNote ? "Không cập nhật được từ đã lưu." : "Không lưu được từ. Hãy kiểm tra nghĩa rồi thử lại."); return; }
+      if (!response.ok) { setSaveState("error"); setSaveMessage(response.status === 409 ? "Từ này đã có trong sổ. Hãy sửa ghi chú đã lưu nếu muốn thay đổi nội dung." : editingNote ? "Không cập nhật được từ đã lưu." : "Không lưu được từ. Hãy kiểm tra nghĩa rồi thử lại."); return; }
+      const saved = editingNote ? null : await response.json() as SavedNote;
       setDrawerOpen(false); setEditingNote(null); setTerm(""); setContext(""); setCustomMeaning(""); setEntries([]); setSelectedCategories([]); setLookupState("idle"); setSaveState("idle");
       await load();
+      setPageNotice(editingNote ? "Đã cập nhật từ vựng." : saved?.created ? "Đã lưu từ vào sổ từ vựng." : saved?.addedCategoryCount ? `Từ đã có trong sổ. Đã thêm vào ${saved.addedCategoryCount} danh mục mới.` : "Từ này đã có trong sổ từ vựng.");
     } catch { setSaveState("error"); setSaveMessage("Không thể kết nối tới máy chủ."); }
   }
 
@@ -126,6 +140,7 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
       const response = await api(`/api/vocabulary-notes/${note.id}/status`, "PATCH", { reviewStatus });
       if (!response.ok) throw new Error();
       setNotes(current => current.map(item => item.id === note.id ? { ...item, reviewStatus } : item));
+      setSummary(current => ({ ...current, newCount: current.newCount + Number(reviewStatus === "NEW") - Number(note.reviewStatus === "NEW"), learningCount: current.learningCount + Number(reviewStatus === "LEARNING") - Number(note.reviewStatus === "LEARNING"), masteredCount: current.masteredCount + Number(reviewStatus === "MASTERED") - Number(note.reviewStatus === "MASTERED") }));
     } catch { setPageMessage("Chưa cập nhật được trạng thái từ."); }
   }
 
@@ -134,7 +149,7 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
     try {
       const response = await api(`/api/vocabulary-notes/${note.id}`, "DELETE");
       if (!response.ok) throw new Error();
-      setNotes(current => current.filter(item => item.id !== note.id));
+      await load();
     } catch { setPageMessage("Chưa xóa được ghi chú. Hãy thử lại."); }
   }
 
@@ -144,7 +159,7 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
   return <div className={styles.page}>
     <AppHeader active="vocabulary" user={user} onLogout={onLogout} />
     <main className={styles.main}>
-      <div className={styles.pageHeading}><div><p className={styles.kicker}>SỔ CÁ NHÂN</p><h1>Sổ từ vựng</h1><p>Lưu lại những từ bạn gặp khi luyện Reading và ôn tập theo nhịp của mình.</p></div><button className={styles.primary} type="button" onClick={() => { setEditingNote(null); setTerm(""); setContext(""); setCustomMeaning(""); setEntries([]); setSelectedSenseId(null); setLookupState("idle"); setSaveState("idle"); setDrawerOpen(true); }}>+ Thêm từ vựng</button></div>
+      <div className={styles.pageHeading}><div><p className={styles.kicker}>SỔ CÁ NHÂN</p><h1>Sổ từ vựng</h1><p>Lưu lại những từ bạn gặp khi luyện Reading và ôn tập theo nhịp của mình.</p></div><button className={styles.primary} type="button" onClick={openNewNote}>+ Thêm từ vựng</button></div>
       <section className={styles.progress} aria-label="Tổng quan từ vựng"><div><span>Tổng số từ</span><strong>{totals.total}</strong></div><div className={styles.progressTrack} aria-hidden="true"><i style={{ width: `${totals.total ? totals.MASTERED / totals.total * 100 : 0}%` }} /></div><div className={styles.statusTotals}><span><i className={styles.newDot} />Chưa thuộc <b>{totals.NEW}</b></span><span><i className={styles.learningDot} />Nhớ sơ sơ <b>{totals.LEARNING}</b></span><span><i className={styles.masteredDot} />Đã thuộc <b>{totals.MASTERED}</b></span></div></section>
       <div className={styles.workspace}>
         <aside className={styles.rail} aria-label="Danh mục từ vựng">
@@ -156,7 +171,7 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
         <section className={styles.notesArea} aria-labelledby="notes-title">
           <div className={styles.listHeading}><div><h2 id="notes-title">{categoryId ? categories.find(category => category.id === categoryId)?.name : "Tất cả từ"}</h2><span>{visibleNotes.length} từ</span></div><div className={styles.listActions}><button type="button" className={styles.secondary} disabled={!visibleNotes.length} onClick={() => setPreviewOpen(true)}>Xem trước</button><button type="button" className={styles.primary} disabled={!visibleNotes.length} onClick={beginStudy}>Học với flashcards</button></div></div>
           <div className={styles.filters}><label className={styles.search}><span aria-hidden="true">⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm từ hoặc nghĩa đã lưu" /></label><label className={styles.statusFilter}>Trạng thái<select value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="ALL">Tất cả</option><option value="NEW">Chưa thuộc</option><option value="LEARNING">Nhớ sơ sơ</option><option value="MASTERED">Đã thuộc</option></select></label></div>
-          {pageMessage && <p className={styles.pageMessage} role="alert">{pageMessage}</p>}{loadState === "loading" ? <p className={styles.empty}>Đang tải sổ từ vựng...</p> : loadState === "error" ? <div className={styles.empty} role="alert"><p>Không tải được dữ liệu từ vựng.</p><button type="button" onClick={() => setRetry(value => value + 1)}>Thử tải lại</button></div> : visibleNotes.length === 0 ? <div className={styles.empty}><strong>{notes.length ? "Không có từ phù hợp bộ lọc." : "Sổ từ vựng đang trống."}</strong><p>{notes.length ? "Thử chọn trạng thái khác hoặc xóa nội dung tìm kiếm." : "Tra một từ trong passage hoặc thêm từ mới để bắt đầu."}</p>{!notes.length && <button type="button" className={styles.primary} onClick={() => { setEditingNote(null); setDrawerOpen(true); }}>Thêm từ vựng</button>}</div> : <div className={styles.tableWrap}><table className={styles.notesTable}><thead><tr><th scope="col">Trạng thái</th><th scope="col">Từ vựng</th><th scope="col">Nghĩa đã lưu</th><th scope="col">Ngữ cảnh</th><th scope="col"><span className={styles.srOnly}>Thao tác</span></th></tr></thead><tbody>{visibleNotes.map(note => <Fragment key={note.id}><tr className={expandedNote === note.id ? styles.expanded : ""}><td><select aria-label={`Trạng thái ${note.word}`} className={`${styles.statusSelect} ${styles[note.reviewStatus.toLowerCase()]}`} value={note.reviewStatus} onChange={event => void changeStatus(note, event.target.value as Note["reviewStatus"])}><option value="NEW">Chưa thuộc</option><option value="LEARNING">Nhớ sơ sơ</option><option value="MASTERED">Đã thuộc</option></select></td><td><strong className={styles.word}>{note.word}</strong>{(note.pronunciation || note.audioUrl) && <span className={styles.wordPronunciation}>{note.pronunciation && <span className={styles.pronunciation}>{note.pronunciation}</span>}{note.audioUrl && <AudioButton source={note.audioUrl} word={note.word} />}</span>}</td><td><span className={styles.definition}>{note.selectedDefinition}</span>{note.customMeaning && <span className={styles.customMeaning}>{note.customMeaning}</span>}</td><td>{note.contextSentence ? <span className={styles.context}>{note.contextSentence}</span> : <span className={styles.context}>—</span>}{note.passageTitle && <span className={styles.passageSource}>{note.passageTitle}</span>}</td><td className={styles.rowActions}><button type="button" onClick={() => setExpandedNote(expandedNote === note.id ? null : note.id)}>{expandedNote === note.id ? "Thu gọn" : "Xem"}</button><button type="button" onClick={() => editNote(note)}>Sửa</button><button type="button" className={styles.deleteNote} onClick={() => void deleteNote(note)}>Xóa</button></td></tr>{expandedNote === note.id && <tr><td colSpan={5} className={styles.detailCell}><strong>Từ được lưu: {note.selectedText}</strong><p>{note.selectedDefinition}</p>{note.customMeaning && <p>Ghi chú của bạn: {note.customMeaning}</p>}{note.contextSentence && <blockquote>{note.contextSentence}</blockquote>}{note.passageTitle && <span>Nguồn: {note.passageTitle}</span>}</td></tr>}</Fragment>)}</tbody></table></div>}
+          {pageNotice && <p className={styles.pageNotice} role="status">{pageNotice}</p>}{pageMessage && <p className={styles.pageMessage} role="alert">{pageMessage}</p>}{loadState === "loading" ? <p className={styles.empty}>Đang tải sổ từ vựng...</p> : loadState === "error" ? <div className={styles.empty} role="alert"><p>Không tải được dữ liệu từ vựng.</p><button type="button" onClick={() => setRetry(value => value + 1)}>Thử tải lại</button></div> : visibleNotes.length === 0 ? <div className={styles.empty}><strong>{notes.length ? "Không có từ phù hợp bộ lọc." : "Sổ từ vựng đang trống."}</strong><p>{notes.length ? "Thử chọn trạng thái khác hoặc xóa nội dung tìm kiếm." : "Tra một từ trong passage hoặc thêm từ mới để bắt đầu."}</p>{!notes.length && <button type="button" className={styles.primary} onClick={openNewNote}>Thêm từ vựng</button>}</div> : <div className={styles.tableWrap}><table className={styles.notesTable}><thead><tr><th scope="col">Trạng thái</th><th scope="col">Từ vựng</th><th scope="col">Nghĩa đã lưu</th><th scope="col">Ngữ cảnh</th><th scope="col"><span className={styles.srOnly}>Thao tác</span></th></tr></thead><tbody>{visibleNotes.map(note => <Fragment key={note.id}><tr className={expandedNote === note.id ? styles.expanded : ""}><td><select aria-label={`Trạng thái ${note.word}`} className={`${styles.statusSelect} ${styles[note.reviewStatus.toLowerCase()]}`} value={note.reviewStatus} onChange={event => void changeStatus(note, event.target.value as Note["reviewStatus"])}><option value="NEW">Chưa thuộc</option><option value="LEARNING">Nhớ sơ sơ</option><option value="MASTERED">Đã thuộc</option></select></td><td><strong className={styles.word}>{note.word}</strong>{(note.pronunciation || note.audioUrl) && <span className={styles.wordPronunciation}>{note.pronunciation && <span className={styles.pronunciation}>{note.pronunciation}</span>}{note.audioUrl && <AudioButton source={note.audioUrl} word={note.word} />}</span>}</td><td><span className={styles.definition}>{note.selectedDefinition}</span>{note.customMeaning && <span className={styles.customMeaning}>{note.customMeaning}</span>}</td><td>{note.contextSentence ? <span className={styles.context}>{note.contextSentence}</span> : <span className={styles.context}>—</span>}{note.passageTitle && <span className={styles.passageSource}>{note.passageTitle}</span>}</td><td className={styles.rowActions}><button type="button" onClick={() => setExpandedNote(expandedNote === note.id ? null : note.id)}>{expandedNote === note.id ? "Thu gọn" : "Xem"}</button><button type="button" onClick={() => editNote(note)}>Sửa</button><button type="button" className={styles.deleteNote} onClick={() => void deleteNote(note)}>Xóa</button></td></tr>{expandedNote === note.id && <tr><td colSpan={5} className={styles.detailCell}><strong>Từ được lưu: {note.selectedText}</strong><p>{note.selectedDefinition}</p>{note.customMeaning && <p>Ghi chú của bạn: {note.customMeaning}</p>}{note.contextSentence && <blockquote>{note.contextSentence}</blockquote>}{note.passageTitle && <span>Nguồn: {note.passageTitle}</span>}</td></tr>}</Fragment>)}</tbody></table></div>}
         </section>
       </div>
     </main>
@@ -165,7 +180,7 @@ export function VocabularyPage({ user, onLogout }: { user: AccountUser; onLogout
       {lookupState === "error" && <p className={styles.lookupError} role="alert">{lookupMessage}</p>}
       {entries.length > 0 && <div className={styles.senseList}><p className={styles.senseHeading}>Chọn nghĩa phù hợp với ngữ cảnh</p>{entries.flatMap(entry => entry.senses.map(sense => <div className={styles.senseOption} key={sense.id}><input id={`vocabulary-sense-${sense.id}`} type="radio" name="selectedSense" checked={selectedSenseId === sense.id} onChange={() => setSelectedSenseId(sense.id)} /><div className={styles.senseOptionText}><label htmlFor={`vocabulary-sense-${sense.id}`}><b>{entry.word}</b><em>{sense.partOfSpeech}</em><span>{sense.definition}</span>{sense.example && <i>“{sense.example}”</i>}{sense.relatedWords.length > 0 && <small>{sense.relatedWords.map(item => `${item.relationType === "SYNONYM" ? "Đồng nghĩa" : "Trái nghĩa"}: ${item.word}`).join(" · ")}</small>}</label><div className={styles.sensePronunciation}>{sense.phoneticText && <small>{sense.phoneticText}</small>}{sense.audioUrl && <AudioButton source={sense.audioUrl} word={entry.word} />}</div></div></div>))}</div>}
       {editingNote && <p className={styles.senseHeading}>Nghĩa từ điển: {editingNote.selectedDefinition}</p>}<label>Ngữ cảnh (không bắt buộc)<textarea value={context} onChange={event => setContext(event.target.value)} maxLength={4000} placeholder="Có thể để trống nếu thêm từ ngoài bài đọc" /></label><label>Ghi chú riêng (không bắt buộc)<textarea value={customMeaning} onChange={event => setCustomMeaning(event.target.value)} maxLength={2000} placeholder="Cách hiểu hoặc bản dịch của bạn" /></label>
-      {!editingNote && categories.length > 0 && <fieldset className={styles.categoryChecks}><legend>Lưu vào danh mục</legend>{categories.map(category => <label key={category.id}><input type="checkbox" checked={selectedCategories.includes(category.id)} onChange={event => setSelectedCategories(current => event.target.checked ? [...current, category.id] : current.filter(id => id !== category.id))} />{category.name}</label>)}</fieldset>}
+      {!editingNote && <div><fieldset className={styles.categoryChecks}><legend>Danh mục (không bắt buộc)</legend>{categories.map(category => <label key={category.id}><input type="checkbox" checked={selectedCategories.includes(category.id)} onChange={event => setSelectedCategories(current => event.target.checked ? [...current, category.id] : current.filter(id => id !== category.id))} />{category.name}</label>)}</fieldset><p className={styles.categoryHint}>Không chọn danh mục, từ vẫn được lưu trong “Tất cả từ”.</p></div>}
       {saveMessage && <p className={styles.lookupError} role="alert">{saveMessage}</p>}<footer><button type="button" className={styles.secondary} onClick={() => { setDrawerOpen(false); setEditingNote(null); }}>Hủy</button><button type="submit" className={styles.primary} disabled={editingNote ? !term.trim() || saveState === "saving" : !selectedSenseId || !term.trim() || saveState === "saving"}>{saveState === "saving" ? "Đang lưu..." : editingNote ? "Lưu thay đổi" : "Lưu từ"}</button></footer>
     </form></aside></div>}
     {previewOpen && <div className={styles.overlay} role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPreviewOpen(false); }}><section className={styles.previewPanel} role="dialog" aria-modal="true" aria-labelledby="preview-title"><header><div><p className={styles.kicker}>XEM TRƯỚC</p><h2 id="preview-title">{categoryId ? categories.find(category => category.id === categoryId)?.name : "Từ đã lưu"}</h2></div><button type="button" aria-label="Đóng xem trước" onClick={() => setPreviewOpen(false)}>×</button></header><div>{visibleNotes.slice(0, 12).map(note => <article key={note.id}><strong>{note.word}</strong>{(note.pronunciation || note.audioUrl) && <span className={styles.wordPronunciation}>{note.pronunciation && <small>{note.pronunciation}</small>}{note.audioUrl && <AudioButton source={note.audioUrl} word={note.word} />}</span>}<p>{note.selectedDefinition}</p>{note.customMeaning && <span>{note.customMeaning}</span>}</article>)}</div><footer><button type="button" className={styles.secondary} onClick={() => setPreviewOpen(false)}>Đóng</button></footer></section></div>}

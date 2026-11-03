@@ -49,7 +49,7 @@
 .card h3 { font-size: 17px; line-height: 1.5; height: 3em; margin: 14px 0 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .part { color: var(--primary-soft-text); font-size: 13px; font-weight: 600; }
 .cardActions { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: auto; padding-top: 18px; }
-.reader { height: 100vh; height: 100dvh; display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--surface); }
+.reader { position: relative; height: 100vh; height: 100dvh; display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--surface); }
 .readerHeader { display: flex; align-items: center; gap: 24px; min-height: 68px; padding: 12px 24px; border-bottom: 1px solid var(--border); }
 .readerHeader h1 { margin: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .readerHeader h1 { flex: 1; min-width: 0; }

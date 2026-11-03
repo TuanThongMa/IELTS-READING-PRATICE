@@ -153,14 +153,15 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
   }
 
   async function saveVocabularyNote() {
-    if (!menu || !senseId || !categoryIds.length) return;
+    if (!menu || !senseId) return;
     setSaving(true); setMessage("");
     try {
       const response = await api("/api/vocabulary-notes", "POST", { senseId, selectedText: menu.text, contextSentence: menu.context, passageId, categoryIds });
       if (!response.ok) { setMessage("Không lưu được từ vào sổ. Hãy thử lại."); return; }
+      const saved = await response.json() as { id: number; created: boolean; addedCategoryCount: number };
       setCategoryPickerOpen(false);
       setNoteSaved(true);
-      setMessage(`Đã lưu vào ${categoryIds.length} danh mục.`);
+      setMessage(saved.created ? categoryIds.length ? `Đã lưu vào ${categoryIds.length} danh mục.` : "Đã lưu vào Tất cả từ." : saved.addedCategoryCount ? `Từ đã có trong sổ. Đã thêm vào ${saved.addedCategoryCount} danh mục mới.` : "Từ này đã có trong sổ từ vựng.");
     } catch { setMessage("Không thể kết nối tới máy chủ."); }
     finally { setSaving(false); }
   }
@@ -171,11 +172,12 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
     setCategoriesLoading(true);
     setCategoryError("");
     setCategoryIds([]);
+    setCategories([]);
     try {
       const response = await api("/api/vocabulary/categories");
       if (!response.ok) throw new Error();
       setCategories(await response.json() as VocabularyCategory[]);
-    } catch { setCategoryError("Chưa tải được danh mục. Hãy thử mở lại."); }
+    } catch { setCategoryError("Chưa tải được danh mục. Bạn vẫn có thể lưu vào Tất cả từ."); }
     finally { setCategoriesLoading(false); }
   }
 
@@ -217,12 +219,12 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
           <label className={styles.lookupMeaning} htmlFor={`reading-sense-${sense.id}`}><span>{sense.definition}</span>{sense.example && <i>“{sense.example}”</i>}{sense.relatedWords.length > 0 && <small>Từ liên quan: {sense.relatedWords.map(word => word.word).join(", ")}</small>}</label>
         </div>
       </div>))}
-        <button className={styles.saveVocabulary} type="button" disabled={!senseId || saving || noteSaved} onClick={() => void openCategoryPicker()}>{noteSaved ? "Đã lưu từ vựng" : "Lưu vào danh mục"}</button>
+        <button className={styles.saveVocabulary} type="button" disabled={!senseId || saving || noteSaved} onClick={() => void openCategoryPicker()}>{noteSaved ? "Đã lưu từ vựng" : "Lưu từ vựng"}</button>
       </div>}
       {categoryPickerOpen && <section className={styles.categoryPicker} aria-label="Chọn danh mục lưu từ">
         <h3>Lưu “{selectedSense ? entries.find(entry => entry.senses.some(sense => sense.id === senseId))?.word : menu.text}” với nghĩa đã chọn</h3>
-        {categoriesLoading ? <p className={styles.selectionMessage}>Đang tải danh mục...</p> : categoryError ? <p className={styles.selectionMessage} role="alert">{categoryError}</p> : categories.length === 0 ? <p className={styles.selectionMessage}>Bạn chưa có danh mục. Hãy tạo danh mục trong <Link to="/vocabulary">Sổ từ vựng</Link> rồi quay lại.</p> : <fieldset className={styles.categoryOptions}><legend>Chọn một hoặc nhiều danh mục</legend>{categories.map(category => <label key={category.id}><input type="checkbox" checked={categoryIds.includes(category.id)} onChange={event => setCategoryIds(current => event.target.checked ? [...current, category.id] : current.filter(id => id !== category.id))} /><span>{category.name}</span></label>)}</fieldset>}
-        <div className={styles.categoryActions}><button type="button" onClick={() => setCategoryPickerOpen(false)}>Quay lại</button><button className={styles.saveVocabulary} type="button" disabled={categoriesLoading || categories.length === 0 || categoryIds.length === 0 || saving} onClick={() => void saveVocabularyNote()}>{saving ? "Đang lưu..." : "Lưu từ"}</button></div>
+        {categoriesLoading ? <p className={styles.selectionMessage}>Đang tải danh mục...</p> : categoryError ? <p className={styles.selectionMessage} role="alert">{categoryError}</p> : categories.length === 0 ? <p className={styles.selectionMessage}>Chưa có danh mục. Từ sẽ được lưu trong Tất cả từ.</p> : <fieldset className={styles.categoryOptions}><legend>Danh mục (không bắt buộc)</legend>{categories.map(category => <label key={category.id}><input type="checkbox" checked={categoryIds.includes(category.id)} onChange={event => setCategoryIds(current => event.target.checked ? [...current, category.id] : current.filter(id => id !== category.id))} /><span>{category.name}</span></label>)}</fieldset>}
+        <div className={styles.categoryActions}><button type="button" onClick={() => setCategoryPickerOpen(false)}>Quay lại</button><button className={styles.saveVocabulary} type="button" disabled={categoriesLoading || saving || !senseId} onClick={() => void saveVocabularyNote()}>{saving ? "Đang lưu..." : "Lưu từ"}</button></div>
       </section>}
       {message && lookupState !== "error" && <p role="status" className={styles.selectionMessage}>{message}</p>}
     </div>}

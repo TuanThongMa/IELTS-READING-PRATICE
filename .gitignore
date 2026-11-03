@@ -9,9 +9,13 @@ backend/target/
 .env
 *.local
 
+# Personal study artifacts
+docs/*.docx
 # Editor and operating-system files
 .idea/
 .vscode/
 *.iml
 .DS_Store
 Thumbs.db
+.agents/skills/
+skills-lock.json
