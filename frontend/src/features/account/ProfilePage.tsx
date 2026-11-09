@@ -92,7 +92,6 @@ export function ProfilePage({ user, onUserUpdated, onLogout }: {
           <header className={styles.panelHeader}><div><h2 id="profile-details-title">Thông tin cơ bản</h2><p>Tên hiển thị sẽ được dùng trong khu vực học tập.</p></div></header>
           <form className={styles.form} onSubmit={saveProfile}>
             <label>Tên hiển thị<input value={displayName} onChange={event => { setDisplayName(event.target.value); setProfileState("idle"); setProfileMessage(""); }} maxLength={100} autoComplete="name" required /></label>
-            <label>Email<input type="email" value={user.email} readOnly aria-describedby="email-note" /><small id="email-note">Email hiện được dùng làm tên đăng nhập và chưa thể thay đổi.</small></label>
             <div className={styles.roleLine}><span>Loại tài khoản</span><strong>{user.role === "ADMIN" ? "Quản trị viên" : "Học viên"}</strong></div>
             <div className={styles.formFooter}><button className={styles.primary} type="submit" disabled={profileState === "saving"}>{profileState === "saving" ? "Đang lưu..." : "Lưu thông tin"}</button>{profileMessage && <p className={profileState === "error" ? styles.error : styles.success} role={profileState === "error" ? "alert" : "status"}>{profileMessage}</p>}</div>
           </form>

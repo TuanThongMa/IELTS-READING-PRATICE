@@ -5,6 +5,9 @@ frontend/dist/
 # Backend
 backend/target/
 
+# Temporary local previews
+/tmp/
+
 # Local configuration
 .env
 *.local
