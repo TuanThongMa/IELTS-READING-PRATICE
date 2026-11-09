@@ -13,20 +13,22 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import tools.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping("/api/admin/pdf-imports")
 class AdminPdfImportController {
     private final PdfImportService imports;
+    private final PdfImportReviewService reviews;
 
-    AdminPdfImportController(PdfImportService imports) {
+    AdminPdfImportController(PdfImportService imports, PdfImportReviewService reviews) {
         this.imports = imports;
+        this.reviews = reviews;
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -61,8 +63,16 @@ class AdminPdfImportController {
     }
 
     @GetMapping("/{id}/review")
-    JsonNode review(@PathVariable long id, Principal principal) {
-        return imports.review(id, principal);
+    PdfImportReviewService.ReviewDocument review(@PathVariable long id, Principal principal) {
+        return reviews.get(id, principal);
+    }
+
+    @PutMapping("/{id}/review")
+    PdfImportReviewService.ReviewDocument saveReview(@PathVariable long id,
+                                                     @org.springframework.web.bind.annotation.RequestBody
+                                                     PdfImportReviewService.SaveRequest request,
+                                                     Principal principal) {
+        return reviews.save(id, request, principal);
     }
 
     @PostMapping("/{id}/retry")

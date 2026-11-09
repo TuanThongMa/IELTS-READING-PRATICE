@@ -1,5 +1,6 @@
 .page { min-height: 100vh; }
 .main { max-width: 1100px; margin: 0 auto; padding: 52px 24px 80px; }
+.mainWide { max-width: 1600px; }
 .heading { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 30px; }
 .headingActions { display: flex; align-items: center; gap: 12px; }
 .heading h1 { margin: 0 0 8px; font-size: 28px; }

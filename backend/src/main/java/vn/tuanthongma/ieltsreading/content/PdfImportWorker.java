@@ -90,7 +90,8 @@ class PdfImportWorker {
             }
             jdbc.update("""
                     UPDATE pdf_import_jobs SET status = 'REVIEW_READY', review_data = ?::jsonb,
-                        processed_pages = page_count, review_version = 1, updated_at = CURRENT_TIMESTAMP
+                        review_draft = NULL, processed_pages = page_count,
+                        review_version = 1, updated_at = CURRENT_TIMESTAMP
                     WHERE pdf_import_job_id = ? AND status = 'RUNNING' AND cancel_requested = false
                     """, JSON.writeValueAsString(review), job.id());
         } catch (ImportFailure ex) {
@@ -107,7 +108,7 @@ class PdfImportWorker {
     @Scheduled(fixedDelay = 3600000)
     void expireOld() {
         jdbc.update("""
-                UPDATE pdf_import_jobs SET status = 'EXPIRED', review_data = NULL,
+                UPDATE pdf_import_jobs SET status = 'EXPIRED', review_data = NULL, review_draft = NULL,
                     cancel_requested = true, updated_at = CURRENT_TIMESTAMP
                 WHERE expires_at <= CURRENT_TIMESTAMP AND status <> 'EXPIRED'
                 """);
@@ -241,7 +242,7 @@ class PdfImportWorker {
 
     private void markCancelled(long id) {
         jdbc.update("""
-                UPDATE pdf_import_jobs SET status = 'CANCELLED', review_data = NULL,
+                UPDATE pdf_import_jobs SET status = 'CANCELLED', review_data = NULL, review_draft = NULL,
                     updated_at = CURRENT_TIMESTAMP WHERE pdf_import_job_id = ? AND status = 'RUNNING'
                 """, id);
     }

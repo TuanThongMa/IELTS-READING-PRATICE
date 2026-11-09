@@ -20,14 +20,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 @Service
 class PdfImportService {
     private static final long MAX_FILE_BYTES = 20L * 1024 * 1024;
     private static final byte[] PDF_HEADER = "%PDF-".getBytes(StandardCharsets.US_ASCII);
-    private static final JsonMapper JSON = JsonMapper.builder().build();
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
     private final Path storageDir;
@@ -119,15 +116,6 @@ class PdfImportService {
         return path;
     }
 
-    JsonNode review(long id, Principal principal) {
-        String data = jdbc.query("""
-                SELECT review_data::text FROM pdf_import_jobs
-                WHERE pdf_import_job_id = ? AND created_by_user_id = ? AND status = 'REVIEW_READY'
-                """, (row, index) -> row.getString(1), id, Long.parseLong(principal.getName()))
-                .stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        return JSON.readTree(data);
-    }
-
     Job retry(long id, Principal principal) {
         long owner = Long.parseLong(principal.getName());
         return transaction.execute(ignored -> {
@@ -139,7 +127,8 @@ class PdfImportService {
                 throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Hàng đợi OCR đã đầy. Hãy thử lại sau.");
             int changed = jdbc.update("""
                     UPDATE pdf_import_jobs SET status = 'QUEUED', processed_pages = 0,
-                        error_code = NULL, review_data = NULL, updated_at = CURRENT_TIMESTAMP
+                        error_code = NULL, review_data = NULL, review_draft = NULL,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE pdf_import_job_id = ? AND created_by_user_id = ?
                       AND status = 'FAILED' AND expires_at > CURRENT_TIMESTAMP
                     """, id, owner);
@@ -160,7 +149,7 @@ class PdfImportService {
                 UPDATE pdf_import_jobs
                 SET cancel_requested = true,
                     status = CASE WHEN status = 'RUNNING' THEN status ELSE 'CANCELLED' END,
-                    review_data = NULL, updated_at = CURRENT_TIMESTAMP
+                    review_data = NULL, review_draft = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE pdf_import_job_id = ? AND created_by_user_id = ?
                   AND status NOT IN ('DRAFT_SAVED', 'PUBLISHED', 'EXPIRED')
                 """, id, owner);

@@ -1,7 +1,7 @@
 # Admin PDF Import Flow — Design Proposal
 
-Status: Step 1 backend extraction complete; Admin review UI pending  
-Updated: 2026-11-03
+Status: Steps 1–2 complete; step 3 application pending
+Updated: 2026-11-07
 
 ## Scope and order
 
@@ -38,9 +38,11 @@ Show parser warnings next to the affected page or block, such as a page with no 
 
 - Suggest passage boundaries, passage numbers, question ranges, group instructions, and likely task variants when recognizable.
 - Show uncertain or unrecognized content as **Cần kiểm tra**; never silently omit it.
-- Let the admin edit extracted passage text, question prompts, options/candidate pool, answer key, accepted answers, and word limits before saving.
-- Require explicit confirmation of answer keys and candidate-reuse rules. PDF layout extraction alone cannot establish the intended correct answer or all IELTS authoring rules.
+- Let the admin edit extracted passage text, question prompts, and answer values in step 2. Review or complete options/candidate pool, accepted answers, and word limits before applying content in step 3.
+- Require explicit confirmation of answer keys in step 2 and candidate-reuse rules before applying content in step 3. PDF layout extraction alone cannot establish the intended correct answer or all IELTS authoring rules.
 - Apply the existing flexible passage numbering and 40-question full-test validation; do not hardcode 13/13/14 question splits.
+
+The step 2 review draft is an intermediate transcription, not the complete authoring model. It stores proposed passage text, question text/type, and answer values/confirmation. Options, candidate pools, accepted answers, and word limits must be checked and mapped to the current question-group model in step 3 before any content can be applied or published. An answer slot existing in the draft does not mean that the OCR found or verified its value.
 
 ### 4. Save and publish
 
@@ -137,7 +139,7 @@ Review:  Tên đề / phạm vi / số trang / số mục cần kiểm tra
 | `POST /` multipart `file`, `scope`, optional `partNumber` | Validate and enqueue | `202` with job ID, state, page count, `Location` |
 | `GET /` and `GET /{id}` | Recent jobs; state, phase, processed/total pages, expiry, error | `200` |
 | `GET /{id}/source` | Stream original PDF to the Admin viewer | `200 application/pdf`, private/no-store |
-| `GET /{id}/review` | Immutable source blocks plus editable recognized draft and review version | `200` when ready |
+| `GET /{id}/review` | Immutable source blocks plus editable recognized draft and review version | `200` when ready; full-test answer slots 1–40 start blank/unconfirmed |
 | `PUT /{id}/review` with `{version, draft}` | Save corrected text, grouping, and confirmed answers | `200` with next version; stale version `409` |
 | `POST /{id}/check` with `{version, mode}` | Return field paths, source pages, and blocking issues | `200 {ready, issues}` |
 | `POST /{id}/apply` with `{version, mode}` | `DRAFT`: create passage/group drafts; `PUBLISH`: validate and publish a passage or all three passages plus full test atomically | `201` with created IDs; identical retry returns same IDs, different mode returns `409` |
@@ -164,7 +166,14 @@ All endpoints are Admin-only and job reads/updates are scoped to the creator. Us
 - The PostgreSQL HTTP integration test on a disposable database covered Admin authorization, owner scoping, PDF signature and scope validation, and the three-job queue bound. The text-PDF smoke test reached `REVIEW_READY` with two text blocks. The scanned Cambridge page reached `REVIEW_READY` with ten OCR blocks.
 - The complete 14-page `Cambridge18-test2.pdf` reached `REVIEW_READY` with **14/14 pages, 217 blocks**, and source-page numbers `[1, 2, ..., 14]`. Every page is flagged `OCR_REVIEW_REQUIRED`. The disposable database still had zero passages and zero reading tests afterward.
 - Docker OCR uses PyTorch 2.6.0 and torchvision 0.21.0 CPU builds. An earlier 2.5.1 CPU attempt exposed a Transformers model compatibility error during a real OCR request, although `/health` returned OK; the corrected image passed both scan tests. The OCR model files are cached in a named volume.
-- The Admin review/correction screen, answer confirmation, and draft/publish transaction remain in slices 2–3. Do not treat the 217 recovered blocks as verified IELTS content.
+- The 217 recovered blocks are OCR output, not verified IELTS content. The Admin review screen was implemented in slice 2; draft/publish application remains in slice 3.
+
+#### Implementation checkpoint 5 — versioned Admin review, 2026-11-07
+
+- Preserve `review_data` as the extraction output; persist Admin edits separately in `review_draft` (`jsonb`, Flyway V22). `GET /review` returns `{version, source, draft}` and `PUT /review` accepts `{version, draft}`. A stale version must return `409`, preventing two tabs from silently overwriting each other.
+- Propose passage prose only between explicit `Reading Passage` and `Questions` boundaries. If a boundary is uncertain, leave the body blank and flag it for review. Propose numbered questions only when the OCR block has an explicit question number. Keep every remaining block visible as unclassified source text. Do not infer answer values from short OCR fragments.
+- Show the source PDF and the editable review side by side on desktop, with page links and a narrow-screen switch. Manual answer confirmation is required even for a value the Admin enters. This checkpoint saves review state only; passage, question-group, and full-test creation remain in step 3.
+- Verification: `PdfImportReviewHttpTest` passed against disposable PostgreSQL with Flyway V22; the frontend production build passed. The Docker API rebuilt and returned health `UP` with the live database at V22. In a local browser smoke test of a **one-page sample**, PDF.js rendered both panes; editing the passage title and confirming two answers saved version 2 and survived reload, with zero console errors. The full 14-page Cambridge review UI has not yet been walked through or validated for publication.
 
 ## Acceptance criteria for the complete importer
 

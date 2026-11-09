@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
 import { useBlocker } from "react-router-dom";
 import { api } from "../../api";
 import { AppHeader, type AccountUser } from "../../components/AppHeader";
 import styles from "./AdminPage.module.css";
 import { QuestionGroups } from "./QuestionGroups";
 import { ReadingTests } from "./ReadingTests";
+
+const PdfImports = lazy(() => import("./PdfImports").then(module => ({ default: module.PdfImports })));
 
 type Passage = { id: number; title: string; partNumber: number; status: string };
 type PassageDetail = Passage & { body: string };
@@ -25,7 +27,9 @@ export function AdminPage({ user, onLogout }: { user: AccountUser; onLogout: () 
   const [questionsDirty, setQuestionsDirty] = useState(false);
   const [publicationCheck, setPublicationCheck] = useState<PublicationCheck | null>(null);
   const [managingTests, setManagingTests] = useState(false);
-  const dirty = questionsDirty || (editing !== null && (title !== editing.title || body !== editing.body || partNumber !== editing.partNumber));
+  const [importing, setImporting] = useState(false);
+  const [pdfImportDirty, setPdfImportDirty] = useState(false);
+  const dirty = questionsDirty || pdfImportDirty || (editing !== null && (title !== editing.title || body !== editing.body || partNumber !== editing.partNumber));
   const blocker = useBlocker(dirty);
   useEffect(() => {
     if (blocker.state === "blocked") {
@@ -119,11 +123,11 @@ export function AdminPage({ user, onLogout }: { user: AccountUser; onLogout: () 
 
   return <div className={styles.page}>
     <AppHeader active="admin" user={user} onLogout={onLogout} />
-    <main className={styles.main}>
-      <div className={styles.heading}><div><h1>Quản trị Reading</h1><p>Quản lý passage và ghép full test cho học viên.</p></div>{!creating && !editing && !managingTests && <div className={styles.headingActions}><button className={styles.secondary} disabled={opening} onClick={() => { setManagingTests(true); setError(""); setNotice(""); }}>Quản lý full test</button><button className={styles.primary} disabled={opening} onClick={() => { setCreating(true); setError(""); setNotice(""); }}>+ Tạo passage</button></div>}</div>
+    <main className={`${styles.main} ${importing ? styles.mainWide : ""}`}>
+      <div className={styles.heading}><div><h1>Quản trị Reading</h1><p>Quản lý passage và ghép full test cho học viên.</p></div>{!creating && !editing && !managingTests && !importing && <div className={styles.headingActions}><button className={styles.secondary} disabled={opening} onClick={() => { setImporting(true); setError(""); setNotice(""); }}>Nhập đề từ PDF</button><button className={styles.secondary} disabled={opening} onClick={() => { setManagingTests(true); setError(""); setNotice(""); }}>Quản lý full test</button><button className={styles.primary} disabled={opening} onClick={() => { setCreating(true); setError(""); setNotice(""); }}>+ Tạo passage</button></div>}</div>
       {notice && <p className={styles.notice} role="status">{notice}</p>}
       {error && <p className={styles.error} role="alert">{error}</p>}
-      {managingTests ? <ReadingTests onBack={() => setManagingTests(false)} /> : creating || editing ? <section className={styles.panel}><h2>{editing ? editing.status === "DRAFT" ? "Chỉnh sửa passage" : "Xem passage" : "Tạo passage"}</h2><p className={styles.help}>{editing && editing.status !== "DRAFT" ? "Passage này không ở trạng thái nháp nên chỉ có thể xem." : "Bài được lưu dưới dạng bản nháp và chưa hiển thị với học viên."}</p>
+      {importing ? <Suspense fallback={<p className={styles.empty}>Đang mở công cụ nhập PDF...</p>}><PdfImports onBack={() => setImporting(false)} onDirtyChange={setPdfImportDirty} /></Suspense> : managingTests ? <ReadingTests onBack={() => setManagingTests(false)} /> : creating || editing ? <section className={styles.panel}><h2>{editing ? editing.status === "DRAFT" ? "Chỉnh sửa passage" : "Xem passage" : "Tạo passage"}</h2><p className={styles.help}>{editing && editing.status !== "DRAFT" ? "Passage này không ở trạng thái nháp nên chỉ có thể xem." : "Bài được lưu dưới dạng bản nháp và chưa hiển thị với học viên."}</p>
         <form onSubmit={submit} className={styles.form}>
           <label>Tên passage<input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} disabled={!!editing && editing.status !== "DRAFT"} required /></label>
           <label>Phần<select value={partNumber} onChange={e => setPartNumber(Number(e.target.value))} disabled={!!editing && editing.status !== "DRAFT"}><option value={1}>Passage 1</option><option value={2}>Passage 2</option><option value={3}>Passage 3</option></select></label>
