@@ -4,6 +4,8 @@ Status: Approved Phase 2 closure design
 Date: 2026-10-16  
 Scope: Map official IELTS Academic Reading task types to the approved three-family question architecture without adding a fourth family.
 
+Revision 2026-11-11: Personal highlights are scoped to an attempt as implemented in V24–V25. Review shows the submitted attempt's marks; a retake does not inherit them. Earlier passage-wide persistence statements below are superseded.
+
 ## Evidence reviewed
 
 Implementation update (2026-10-28): Sentence Completion stores explicitly authored answer alternatives and a selected word-limit mode. Learner save endpoints enforce the selected mode, grading rechecks it and compares against all accepted answers, and the learner UI gives inline feedback. Older one-answer or instruction-only statements below describe superseded launch decisions.

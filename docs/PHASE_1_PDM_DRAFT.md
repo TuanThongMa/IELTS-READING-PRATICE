@@ -4,6 +4,8 @@ Status: Approved design baseline; vocabulary/highlight tables implemented in mig
 Date: 2026-10-26
 Source: approved CDM semantics and `DATA_MODEL_DECISIONS.md`
 
+Revision 2026-11-11: Migrations V24–V25 scope `reading_highlights` to a passage or full-test attempt. Submitted review retains that attempt's marks; a new attempt starts empty. The original cross-attempt highlight descriptions below are superseded.
+
 ## Conventions and decisions
 
 - Tables and columns use unquoted lowercase `snake_case`.

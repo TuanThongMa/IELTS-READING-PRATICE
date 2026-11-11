@@ -18,10 +18,12 @@
 
 ## Passage highlight anchors
 
-- A personal highlight stores `passage_id`, UTF-16 `start_offset`/`end_offset`, the exact selected text, and nearby context.
+- A personal highlight stores `passage_id`, either `quiz_attempt_id` or `reading_test_attempt_id`, UTF-16 `start_offset`/`end_offset`, the exact selected text, and nearby context.
 - Offsets match JavaScript string indexing in the browser and Java `String` indexing in the API. The server checks the submitted quote against the stored passage text before accepting it.
-- Highlights are user-owned and independent from answer keys, answer evidence, and scoring. They persist for the same immutable passage version across attempts, including full-test attempts.
+- Highlights are user-owned and independent from answer keys, answer evidence, and scoring. Each belongs to one passage or full-test attempt. Review loads that submitted attempt's highlights; a new attempt starts with none.
 - Overlapping selections are rejected to keep rendering and deletion predictable. Highlight remains available during an exam attempt; dictionary lookup is disabled in real-test mode.
+
+**Interview point:** A user-scoped annotation still needs the right lifecycle key. Scoping highlights only by `user_id` and `passage_id` makes a retake inherit the previous attempt's marks. The API validates that the attempt belongs to the user and contains the passage, while unique partial indexes isolate ranges per attempt type. The migration assigns old marks to an attempt only when timestamps establish a match; unmatched marks are retained without attaching them to a guessed attempt.
 
 **Interview point:** Text offsets are only stable against a particular text version. Publishing edited content as a new passage version avoids silently moving old highlights to unrelated text.
 
@@ -39,9 +41,16 @@
 
 - Lookup is local-first: check normalized words and provider-returned stems before making an external request.
 - Normalize case, whitespace, and Unicode before cache lookup. Keep provider parsing behind a backend service so the frontend depends on a stable application DTO.
+- A provider result can match a phrase in `meta.stems` without defining the selected word itself. Prefer the exact headword, then valid single-word inflections; do not attach the requested term to every returned entry. Old derived aliases must be invalidated when that matching rule changes.
+- Merriam-Webster usage examples are `vis` pairs inside individual senses. Keep one example with its own definition, and mark cached entries after a successful parse so entries without examples do not trigger a provider call on every lookup. For a note added directly in the vocabulary page, the chosen dictionary example becomes editable context. For a note selected from a passage, save its source sentence as context and continue showing the dictionary example separately during lookup. The saved context is a snapshot; `passage_id` records where the lookup happened.
+- The passage context extractor uses the selected text offset within its paragraph and `Intl.Segmenter("en", { granularity: "sentence" })`. It joins common abbreviations that the segmenter may split, and falls back to at most ten words on each side when no reliable sentence is found or the sentence exceeds 80 words.
 - When the provider key is missing or the provider is unavailable, return a clear service error; cached dictionary entries remain usable.
 
 **Interview point:** A cache improves latency and reduces cost, but it does not by itself solve concurrent cache misses, provider rate limits, stale data, or terms with multiple senses. Those need explicit policies as traffic grows.
+
+**Interview point:** Search matches from a third-party dictionary are not interchangeable meanings. Validate the relationship between the query and each headword before caching, and keep examples attached to their source sense. Cache invalidation must address previously stored derived links without deleting user notes.
+
+**Interview point:** A sentence segmenter is a locale-aware heuristic, not a guarantee of grammatical boundaries. Keep the original text offsets, handle known abbreviation cases, and define a bounded fallback instead of assuming every period ends a sentence.
 
 ## Verification boundary
 

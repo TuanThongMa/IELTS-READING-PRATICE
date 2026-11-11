@@ -4,6 +4,8 @@ Status: Approved
 Date: 2026-10-16  
 Scope: Cross-check of the approved Phase 1 PDM, Phase 0 baseline, Phase 2 learner/admin UX, and API contract. No migration or application code is created by this review.
 
+Revision 2026-11-11: The owner changed highlight persistence to one attempt. Migrations V24–V25 implement this; submitted review keeps its marks and a retake starts empty. Earlier user-and-passage scope statements below are historical.
+
 ## Review result
 
 The core domain is ready: identity and ownership, passage/test content, standalone attempts, full-test sessions, submitted answers, versioned Academic band guidance, categories, and personal vocabulary notes all have a named owner and a persistence direction.

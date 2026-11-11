@@ -1,6 +1,8 @@
 # Data Model Decision Log
 
-Last updated: 2026-10-26
+Last updated: 2026-11-11
+
+Revision 2026-11-11: Highlight scope is now one `quiz_attempt_id` or `reading_test_attempt_id` per mark (migrations V24–V25). A submitted attempt retains its highlights in review; a new attempt starts without them. Earlier user-and-passage persistence decisions below record the previous design and are superseded.
 
 This document records confirmed domain decisions. Items marked `Open` are deliberately unresolved and must not be treated as requirements.
 

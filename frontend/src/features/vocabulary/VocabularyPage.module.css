@@ -103,6 +103,9 @@
 .senseOption em { color: var(--primary-soft-text); font-style: normal; }
 .senseOption small { color: var(--text-secondary); font-size: 11px; }
 .senseOption i { color: var(--text-secondary); font-family: var(--font-reading); }
+.dictionaryExample { display: grid; gap: 2px; padding-top: 3px; }
+.dictionaryExample > span { color: var(--text-secondary); font-family: var(--font-ui); font-size: 10px; font-weight: 600; }
+.dictionaryExample i { line-height: 1.5; }
 .sensePronunciation { display: flex; align-items: center; gap: 5px; min-height: 28px; }
 .categoryChecks { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 0; border: 0; }
 .categoryChecks legend { margin-bottom: 8px; color: var(--text); font-size: 13px; font-weight: 600; }

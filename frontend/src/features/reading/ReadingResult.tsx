@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api";
+import { PassageText } from "./ReadingPage";
 import { supportsTaskContent, TaskQuestionReview, type TaskTemplate } from "./ReadingTaskContent";
 import styles from "./ReadingPage.module.css";
 import resultStyles from "./ReadingResult.module.css";
@@ -8,7 +9,7 @@ import resultStyles from "./ReadingResult.module.css";
 type Choice = { label: string; text: string };
 type Question = { id: number; number: number; text: string; afterBlank: string | null; status: "CORRECT" | "INCORRECT" | "SKIPPED"; choices: Choice[]; submittedAnswer: string | null; correctAnswer: string; acceptedAnswers: string[]; explanation: string | null };
 type Group = { id: number; family: string; variant: string; instructions: string; wordLimitMode: string | null; candidates: Choice[]; presentationTemplate: TaskTemplate | null; questions: Question[] };
-type Result = { attemptId: number; title: string; body: string; partNumber: number; total: number; correct: number; incorrect: number; skipped: number; accuracy: number; breakdown: { family: string; total: number; correct: number; incorrect: number; skipped: number }[]; groups: Group[] };
+type Result = { attemptId: number; passageId: number; title: string; body: string; partNumber: number; total: number; correct: number; incorrect: number; skipped: number; accuracy: number; breakdown: { family: string; total: number; correct: number; incorrect: number; skipped: number }[]; groups: Group[] };
 const familyNames: Record<string, string> = { OPTION: "Lựa chọn", BLANK: "Điền từ", MATCHING: "Matching" };
 const statusNames: Record<Question["status"], string> = { CORRECT: "Đúng", INCORRECT: "Sai", SKIPPED: "Bỏ qua" };
 
@@ -47,7 +48,7 @@ export function ReadingResult() {
   const correctEnd = result.total ? result.correct * 100 / result.total : 0;
   const incorrectEnd = result.total ? (result.correct + result.incorrect) * 100 / result.total : 0;
   if (review) return <main className={styles.reader}><header className={styles.readerHeader}><button type="button" className={styles.retry} onClick={() => setReview(false)}>← Kết quả</button><h1>{result.title}</h1><span className={styles.preview}>Xem lại bài đã nộp</span></header><div className={styles.mobileTabs} role="tablist" aria-label="Khu vực xem lại"><button role="tab" aria-selected={tab === "reading"} onClick={() => setTab("reading")}>Bài đọc</button><button role="tab" aria-selected={tab === "questions"} onClick={() => setTab("questions")}>Câu hỏi</button></div><div className={styles.workspace} ref={workspace} style={{ gridTemplateColumns: `minmax(0, ${width}fr) 12px minmax(0, ${100 - width}fr)` }}>
-    <section id="review-reading-panel" aria-label="Bài đọc" className={`${styles.pane} ${styles.readingPane} ${tab === "questions" ? styles.mobileHidden : ""}`}><div className={styles.readingContent}><p className={styles.passageLabel}>Reading passage {result.partNumber}</p><h2>{result.title}</h2><div className={styles.passageBody}>{result.body}</div></div></section>
+    <section id="review-reading-panel" aria-label="Bài đọc" className={`${styles.pane} ${styles.readingPane} ${tab === "questions" ? styles.mobileHidden : ""}`}><div className={styles.readingContent}><p className={styles.passageLabel}>Reading passage {result.partNumber}</p><h2>{result.title}</h2><PassageText body={result.body} passageId={result.passageId} attemptType="PASSAGE" attemptId={result.attemptId} readOnly /></div></section>
     <div className={styles.divider} role="separator" tabIndex={0} aria-label="Điều chỉnh độ rộng bài đọc và câu hỏi" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={65} aria-valuenow={Math.round(width)} aria-controls="review-reading-panel" onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); resizePointer(e); }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) resizePointer(e); }} onKeyDown={resizeKey}><span aria-hidden="true">⋮</span></div>
     <section ref={questionsPane} aria-label="Kết quả từng câu" className={`${styles.pane} ${styles.questionsPane} ${tab === "reading" ? styles.mobileHidden : ""}`}><div className={styles.questionsContent}>{result.groups.map(group => <section className={styles.group} key={group.id}><h2>Questions {group.questions[0]?.number}{group.questions.length > 1 ? "–" + group.questions[group.questions.length - 1].number : ""}</h2><p className={styles.instructions}>{group.instructions}</p>
   {supportsTaskContent(group.variant, group.presentationTemplate)

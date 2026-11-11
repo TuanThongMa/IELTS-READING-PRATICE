@@ -4,6 +4,7 @@ import { api } from "../../api";
 import { AudioButton } from "../../components/AudioButton";
 import { AppHeader, type AccountUser } from "../../components/AppHeader";
 import { answerErrorsFor, answerWordLimitError, type WordLimitMode } from "./answerTextPolicy";
+import { readingContext } from "./readingContext";
 import { MatchingQuestionInputs, supportsMatchingInteraction, supportsTaskContent, TaskQuestionInputs, TaskQuestionReview, type TaskTemplate } from "./ReadingTaskContent";
 import styles from "./ReadingPage.module.css";
 
@@ -24,7 +25,8 @@ type LookupSense = { id: number; partOfSpeech: string; phoneticText: string | nu
 type LookupEntry = { id: number; word: string; sourceUrl: string; senses: LookupSense[] };
 type VocabularyCategory = { id: number; name: string; noteCount: number };
 
-export function PassageText({ body, passageId, allowDictionary = true }: { body: string; passageId: number; allowDictionary?: boolean }) {
+export function PassageText({ body, passageId, attemptId, attemptType, allowDictionary = true, readOnly = false }:
+  { body: string; passageId: number; attemptId: number; attemptType: "PASSAGE" | "FULL_TEST"; allowDictionary?: boolean; readOnly?: boolean }) {
   const root = useRef<HTMLDivElement>(null);
   const selectionRange = useRef<Range | null>(null);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -42,8 +44,10 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
   const [categoryError, setCategoryError] = useState("");
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
+  const highlightsUrl = `/api/reading/passages/${passageId}/highlights?attemptType=${attemptType}&attemptId=${attemptId}`;
 
   useEffect(() => {
+    if (readOnly) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       const key = event.key.toLowerCase();
       if ((key !== "h" && (key !== "t" || !allowDictionary)) || event.repeat || event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]")) return;
@@ -55,17 +59,19 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [allowDictionary]);
+  }, [allowDictionary, readOnly]);
 
   useEffect(() => {
     let active = true;
-    api(`/api/reading/passages/${passageId}/highlights`).then(async response => {
+    setHighlights([]);
+    setMessage("");
+    api(highlightsUrl).then(async response => {
       if (!response.ok) throw new Error();
       const result = await response.json() as Highlight[];
       if (active) setHighlights(result);
     }).catch(() => { if (active) setMessage("Chưa tải được highlight đã lưu."); });
     return () => { active = false; };
-  }, [passageId]);
+  }, [passageId, attemptId, attemptType]);
 
   useEffect(() => {
     if (!menu) return;
@@ -99,10 +105,7 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
     start += leading; end -= trailing;
     const selectedText = body.slice(start, end);
     if (!selectedText || selectedText.length > 2000) return;
-    const lineStart = body.lastIndexOf("\n", start - 1) + 1;
-    const foundEnd = body.indexOf("\n", end);
-    const lineEnd = foundEnd < 0 ? body.length : foundEnd;
-    const context = body.slice(lineStart, lineEnd).trim();
+    const context = readingContext(body, start, end);
     const rect = range.getBoundingClientRect();
     selectionRange.current = range.cloneRange();
     const position = selectionToolsPosition(rect);
@@ -119,11 +122,11 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
     if (!selection) return;
     setSaving(true); setMessage("");
     try {
-      const response = await api(`/api/reading/passages/${passageId}/highlights`, "POST", { startOffset: selection.start, endOffset: selection.end, selectedText: selection.text });
-      if (!response.ok) { setMessage(response.status === 409 ? "Vùng này chồng lên highlight khác hoặc không được phép trong full test." : "Không lưu được highlight. Hãy chọn lại đoạn văn."); return; }
+      const response = await api(highlightsUrl, "POST", { startOffset: selection.start, endOffset: selection.end, selectedText: selection.text });
+      if (!response.ok) { setMessage(response.status === 409 ? "Vùng này chồng lên highlight khác hoặc lượt làm đã kết thúc." : "Không lưu được highlight. Hãy chọn lại đoạn văn."); return; }
       const saved = await response.json() as Highlight;
       setHighlights(current => [...current.filter(item => item.id !== saved.id), saved].sort((a, b) => a.startOffset - b.startOffset));
-      setMessage("Đã lưu highlight cho passage này.");
+      setMessage("Đã lưu highlight cho lượt làm này.");
       window.getSelection()?.removeAllRanges();
     } catch { setMessage("Không thể kết nối tới máy chủ."); }
     finally { setSaving(false); }
@@ -131,7 +134,7 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
 
   async function removeHighlight(highlight: Highlight) {
     try {
-      const response = await api(`/api/reading/passages/${passageId}/highlights/${highlight.id}`, "DELETE");
+      const response = await api(`/api/reading/passages/${passageId}/highlights/${highlight.id}?attemptType=${attemptType}&attemptId=${attemptId}`, "DELETE");
       if (!response.ok) throw new Error();
       setHighlights(current => current.filter(item => item.id !== highlight.id));
     } catch { setMessage("Chưa xóa được highlight."); }
@@ -191,6 +194,12 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
   if (cursor < body.length) segments.push({ text: body.slice(cursor) });
 
   const selectedSense = entries.flatMap(entry => entry.senses).find(sense => sense.id === senseId);
+  if (readOnly) return <>
+    <div className={styles.passageBody}>{segments.map((segment, index) => segment.highlight
+      ? <mark className={`${styles.userHighlight} ${styles.reviewHighlight}`} key={`h-${segment.highlight.id}`}>{segment.text}</mark>
+      : <span key={`t-${index}`}>{segment.text}</span>)}</div>
+    {message && <p className={styles.selectionMessage} role="alert">{message}</p>}
+  </>;
   return <>
     <div className={styles.passageLayout}>
       <aside className={styles.toolsRail} aria-label="Công cụ bài đọc">
@@ -216,13 +225,14 @@ export function PassageText({ body, passageId, allowDictionary = true }: { body:
         <div className={styles.lookupSenseText}>
           <label className={styles.lookupWord} htmlFor={`reading-sense-${sense.id}`}><b>{entry.word}</b></label>
           <div className={styles.lookupPronunciation}><label htmlFor={`reading-sense-${sense.id}`}><small>{sense.partOfSpeech}{sense.phoneticText ? ` · ${sense.phoneticText}` : ""}</small></label>{sense.audioUrl && <AudioButton source={sense.audioUrl} word={entry.word} />}</div>
-          <label className={styles.lookupMeaning} htmlFor={`reading-sense-${sense.id}`}><span>{sense.definition}</span>{sense.example && <i>“{sense.example}”</i>}{sense.relatedWords.length > 0 && <small>Từ liên quan: {sense.relatedWords.map(word => word.word).join(", ")}</small>}</label>
+          <label className={styles.lookupMeaning} htmlFor={`reading-sense-${sense.id}`}><span>{sense.definition}</span>{sense.example && <span className={styles.dictionaryExample}><span>Ví dụ từ điển</span><i>“{sense.example}”</i></span>}{sense.relatedWords.length > 0 && <small>Từ liên quan: {sense.relatedWords.map(word => word.word).join(", ")}</small>}</label>
         </div>
       </div>))}
         <button className={styles.saveVocabulary} type="button" disabled={!senseId || saving || noteSaved} onClick={() => void openCategoryPicker()}>{noteSaved ? "Đã lưu từ vựng" : "Lưu từ vựng"}</button>
       </div>}
       {categoryPickerOpen && <section className={styles.categoryPicker} aria-label="Chọn danh mục lưu từ">
         <h3>Lưu “{selectedSense ? entries.find(entry => entry.senses.some(sense => sense.id === senseId))?.word : menu.text}” với nghĩa đã chọn</h3>
+        <p className={styles.selectionMessage}>Ngữ cảnh từ bài đọc: “{menu.context}”</p>
         {categoriesLoading ? <p className={styles.selectionMessage}>Đang tải danh mục...</p> : categoryError ? <p className={styles.selectionMessage} role="alert">{categoryError}</p> : categories.length === 0 ? <p className={styles.selectionMessage}>Chưa có danh mục. Từ sẽ được lưu trong Tất cả từ.</p> : <fieldset className={styles.categoryOptions}><legend>Danh mục (không bắt buộc)</legend>{categories.map(category => <label key={category.id}><input type="checkbox" checked={categoryIds.includes(category.id)} onChange={event => setCategoryIds(current => event.target.checked ? [...current, category.id] : current.filter(id => id !== category.id))} /><span>{category.name}</span></label>)}</fieldset>}
         <div className={styles.categoryActions}><button type="button" onClick={() => setCategoryPickerOpen(false)}>Quay lại</button><button className={styles.saveVocabulary} type="button" disabled={categoriesLoading || saving || !senseId} onClick={() => void saveVocabularyNote()}>{saving ? "Đang lưu..." : "Lưu từ"}</button></div>
       </section>}
@@ -531,7 +541,7 @@ export function ReadingPassage() {
   const questions = passage.groups.flatMap(group => group.questions);
   const answered = questions.filter(q => (answers[q.id] || "").trim()).length;
   return <main className={styles.reader}><header className={styles.readerHeader}>{attempt.mode === "REAL_TEST" ? <button type="button" className={styles.exitButton} onClick={() => { setExitSaveError(false); setExitConfirmOpen(true); }}>Thoát thi</button> : <Link to="/reading">← Danh sách</Link>}<h1>{passage.title}</h1>{attempt.mode === "REAL_TEST" && <span className={styles.modeBadge}>Thi thật</span>}<span className={styles.elapsedTime} role="timer" aria-label="Thời gian làm bài">{formatElapsed(elapsedSeconds)}</span><span className={styles.preview} role="status" aria-live="polite">{saveState === "saving" ? "Đang lưu..." : saveState === "failed" ? <>Chưa lưu được. <button type="button" className={styles.retry} onClick={retry}>Thử lưu lại</button></> : "Đã lưu"}</span></header><div className={styles.mobileTabs} role="tablist" aria-label="Khu vực bài đọc"><button role="tab" aria-selected={tab === "reading"} onClick={() => setTab("reading")}>Bài đọc</button><button role="tab" aria-selected={tab === "questions"} onClick={() => setTab("questions")}>Câu hỏi</button></div><div className={styles.workspace} ref={workspace} style={{ gridTemplateColumns: `minmax(0, ${width}fr) 12px minmax(0, ${100 - width}fr)` }}>
-    <section id="reading-panel" aria-label="Bài đọc" className={`${styles.pane} ${styles.readingPane} ${tab === "questions" ? styles.mobileHidden : ""}`}><div className={styles.readingContent}><p className={styles.passageLabel}>Reading passage {passage.partNumber}</p><h2>{passage.title}</h2><PassageText body={passage.body} passageId={passage.id} allowDictionary={attempt.mode !== "REAL_TEST"} /></div></section>
+    <section id="reading-panel" aria-label="Bài đọc" className={`${styles.pane} ${styles.readingPane} ${tab === "questions" ? styles.mobileHidden : ""}`}><div className={styles.readingContent}><p className={styles.passageLabel}>Reading passage {passage.partNumber}</p><h2>{passage.title}</h2><PassageText key={attempt.id} body={passage.body} passageId={passage.id} attemptType="PASSAGE" attemptId={attempt.id} allowDictionary={attempt.mode !== "REAL_TEST"} /></div></section>
     <div className={styles.divider} role="separator" tabIndex={0} aria-label="Điều chỉnh độ rộng bài đọc và câu hỏi" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={65} aria-valuenow={Math.round(width)} aria-controls="reading-panel" onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); setFromPointer(e); }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) setFromPointer(e); }} onKeyDown={resizeKey}><span aria-hidden="true">⋮</span></div>
     <section ref={questionsPane} aria-label="Câu hỏi" className={`${styles.pane} ${styles.questionsPane} ${tab === "reading" ? styles.mobileHidden : ""}`}><div className={styles.questionsContent}><p className={styles.previewNote}>Câu trả lời được lưu tự động. Đồng hồ vẫn chạy khi bạn chuyển tab và thời lượng được lưu định kỳ mỗi 15 giây.</p>{clockSaveError && <p className={styles.clockWarning} role="alert">Chưa lưu được thời gian gần nhất. Hệ thống sẽ thử lại ở mốc tiếp theo.</p>}{passage.groups.map(group => <section className={styles.group} key={group.id}>
   <h2>Questions {group.questions[0]?.number}{group.questions.length > 1 ? `–${group.questions[group.questions.length - 1].number}` : ""}</h2>

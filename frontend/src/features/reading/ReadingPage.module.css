@@ -81,6 +81,7 @@
 .lookupToggle:hover, .lookupActive { background: var(--primary-soft); color: var(--primary); }
 .passageBody { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-reading); font-size: 18px; font-weight: 700; line-height: 1.8; }
 .userHighlight { padding: 0 .05em; border-radius: 2px; background: var(--highlight); color: inherit; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.reviewHighlight { cursor: default; }
 .selectionTools { position: fixed; z-index: 15; width: min(380px, calc(100vw - 24px)); max-height: min(72vh, 560px); overflow: auto; overscroll-behavior: contain; padding: 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: 0 10px 30px rgb(15 23 42 / 18%); color: var(--text); font-family: var(--font-ui); font-size: 12px; font-weight: 400; line-height: 1.5; }
 .selectionQuote { overflow: hidden; padding: 4px 5px 8px; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .selectionActions { display: flex; gap: 6px; }
@@ -99,6 +100,9 @@
 .lookupSense b { color: var(--text); }
 .lookupSense small { color: var(--primary-soft-text); font-size: 10px; }
 .lookupSense i { font-family: var(--font-reading); }
+.dictionaryExample { display: grid; gap: 2px; padding-top: 3px; }
+.dictionaryExample > span { color: var(--text-secondary); font-family: var(--font-ui); font-size: 10px; font-weight: 600; }
+.dictionaryExample i { color: var(--text-secondary); line-height: 1.5; }
 .lookupPronunciation { display: flex; align-items: center; gap: 5px; min-height: 22px; }
 .lookupPronunciation label { cursor: pointer; }
 .saveVocabulary { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }

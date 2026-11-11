@@ -70,7 +70,7 @@ export function ReadingTest() {
       <section className={`${styles.pane} ${styles.readingPane}`}>
         <div className={styles.readingContent}>
           <p className={`${styles.passageLabel} ${styles.testPassageLabel}`}>Reading passage {passage.partNumber} · Questions {passage.startNumber}–{passage.startNumber + passage.groups.flatMap(group => group.questions).length - 1}</p>
-          <h2 className={styles.testPassageTitle}>{passage.title}</h2><PassageText body={passage.body} passageId={passage.id} allowDictionary={attempt.mode !== "REAL_TEST"} />
+          <h2 className={styles.testPassageTitle}>{passage.title}</h2><PassageText key={`${attempt.id}:${passage.id}`} body={passage.body} passageId={passage.id} attemptType="FULL_TEST" attemptId={attempt.id} allowDictionary={attempt.mode !== "REAL_TEST"} />
         </div>
       </section>
       <div className={styles.divider} aria-hidden>⋮</div>
@@ -161,7 +161,7 @@ export function ReadingTestResult() {
     </div>
     <div className={styles.workspace} ref={workspace} style={{ gridTemplateColumns: `minmax(0, ${width}fr) 12px minmax(0, ${100 - width}fr)` }}>
       <section id="full-review-reading-panel" aria-label="Bài đọc" className={`${styles.pane} ${styles.readingPane} ${tab === "questions" ? styles.mobileHidden : ""}`}>
-        <div className={styles.readingContent}><p className={`${styles.passageLabel} ${styles.testPassageLabel}`}>Reading passage {passage.partNumber} · Questions {passage.startNumber}–{passage.startNumber + passage.groups.flatMap(group => group.questions).length - 1}</p><h2 className={styles.testPassageTitle}>{passage.title}</h2><div className={styles.passageBody}>{passage.body}</div></div>
+        <div className={styles.readingContent}><p className={`${styles.passageLabel} ${styles.testPassageLabel}`}>Reading passage {passage.partNumber} · Questions {passage.startNumber}–{passage.startNumber + passage.groups.flatMap(group => group.questions).length - 1}</p><h2 className={styles.testPassageTitle}>{passage.title}</h2><PassageText key={`${id}:${passage.id}`} body={passage.body} passageId={passage.id} attemptType="FULL_TEST" attemptId={Number(id)} readOnly /></div>
       </section>
       <div className={styles.divider} role="separator" tabIndex={0} aria-label="Điều chỉnh độ rộng bài đọc và câu hỏi" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={65} aria-valuenow={Math.round(width)} aria-controls="full-review-reading-panel" onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); resizePointer(event); }} onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizePointer(event); }} onKeyDown={resizeKey}><span aria-hidden="true">⋮</span></div>
       <section ref={questionsPane} aria-label="Kết quả từng câu" className={`${styles.pane} ${styles.questionsPane} ${tab === "reading" ? styles.mobileHidden : ""}`}>
