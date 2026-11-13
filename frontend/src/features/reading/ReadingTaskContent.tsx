@@ -170,6 +170,7 @@ export function TaskQuestionInputs({ group, answers, errors, onAnswer, questionI
 }) {
   const wordLimit = group.wordLimitMode ? ({
     ONE_WORD: "ONE WORD ONLY",
+    ONE_WORD_AND_ONE_NUMBER: "ONE WORD AND/OR A NUMBER",
     TWO_WORDS: "NO MORE THAN TWO WORDS",
     TWO_WORDS_AND_ONE_NUMBER: "NO MORE THAN TWO WORDS AND/OR A NUMBER",
     THREE_WORDS_AND_ONE_NUMBER: "NO MORE THAN THREE WORDS AND/OR A NUMBER",
@@ -225,6 +226,28 @@ export function TaskQuestionInputs({ group, answers, errors, onAnswer, questionI
       {error && <small className={styles.error} role="alert">{error}</small>}
     </span>;
   };
+  if (group.variant === "SUMMARY_COMPLETION" && group.answerInputMode === "SHARED_CHOICE_POOL" && template.kind === "PARAGRAPH" && template.paragraphs) {
+    const renderChoiceBlank = (questionIndex: number) => {
+      const question = group.questions[questionIndex];
+      if (!question) return null;
+      const usedElsewhere = new Set(group.questions.filter(other => other.id !== question.id).map(other => answers[other.id]).filter(Boolean));
+      return <span className={styles.paragraphBlankWrap} id={`${questionIdPrefix}${question.number}`} key={question.id}>
+        <span className={styles.paragraphBlank}>
+          <b className={styles.paragraphNumber}>{question.number}</b>
+          <select className={styles.paragraphChoice} aria-label={`Đáp án câu ${question.number}`} value={answers[question.id] || ""}
+            onChange={event => onAnswer(question.id, event.target.value)}>
+            <option value="">Chọn đáp án</option>
+            {group.candidates.map(candidate => <option key={candidate.label} value={candidate.label}
+              disabled={!group.candidateReuse && usedElsewhere.has(candidate.label)}>{candidate.label} — {candidate.text}</option>)}
+          </select>
+        </span>
+      </span>;
+    };
+    return <div className={styles.paragraphCompletion}>
+      {template.paragraphs.map((paragraph, index) => <p key={index}>{renderParts(paragraph, renderChoiceBlank)}</p>)}
+      <ul className={styles.choiceBank}>{group.candidates.map(candidate => <li key={candidate.label}><b>{candidate.label}.</b> {candidate.text}</li>)}</ul>
+    </div>;
+  }
   if (template.kind === "PARAGRAPH" && template.paragraphs) return <div className={styles.paragraphCompletion}>
     {wordLimit && <p className={styles.hint}>Answer using {wordLimit}.</p>}
     {template.paragraphs.map((paragraph, index) => <p key={index}>{renderParts(paragraph, renderParagraphBlank)}</p>)}
@@ -247,7 +270,7 @@ export function TaskQuestionInputs({ group, answers, errors, onAnswer, questionI
 }
 
 export function TaskQuestionReview({ group, questionIdPrefix = "review-question-" }: { group: Pick<TaskGroup, "variant" | "questions" | "presentationTemplate" | "wordLimitMode">; questionIdPrefix?: string }) {
-  const wordLimit = group.wordLimitMode ? ({ ONE_WORD: "ONE WORD ONLY", TWO_WORDS: "NO MORE THAN TWO WORDS", TWO_WORDS_AND_ONE_NUMBER: "NO MORE THAN TWO WORDS AND/OR A NUMBER", THREE_WORDS_AND_ONE_NUMBER: "NO MORE THAN THREE WORDS AND/OR A NUMBER" } as Record<string, string>)[group.wordLimitMode] : null;
+  const wordLimit = group.wordLimitMode ? ({ ONE_WORD: "ONE WORD ONLY", ONE_WORD_AND_ONE_NUMBER: "ONE WORD AND/OR A NUMBER", TWO_WORDS: "NO MORE THAN TWO WORDS", TWO_WORDS_AND_ONE_NUMBER: "NO MORE THAN TWO WORDS AND/OR A NUMBER", THREE_WORDS_AND_ONE_NUMBER: "NO MORE THAN THREE WORDS AND/OR A NUMBER" } as Record<string, string>)[group.wordLimitMode] : null;
   if (group.variant === "MULTIPLE_CHOICE_MULTIPLE") return <div className={styles.multipleChoice}>
     <ul className={styles.choiceBank}>{(group.questions[0]?.choices ?? []).map(choice => <li key={choice.label}><b>{choice.label}.</b> {choice.text}</li>)}</ul>
     <p className={styles.hint}>Đáp án đúng của nhóm: <strong>{group.questions[0]?.acceptedAnswers?.join(", ") || "—"}</strong>. Mỗi ô bên dưới là câu trả lời người học đã chọn.</p>

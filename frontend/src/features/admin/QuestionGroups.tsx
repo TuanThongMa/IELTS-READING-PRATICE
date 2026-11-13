@@ -3,7 +3,7 @@ import { api } from "../../api";
 import styles from "./AdminPage.module.css";
 
 type Variant = "TRUE_FALSE_NOT_GIVEN" | "YES_NO_NOT_GIVEN" | "MULTIPLE_CHOICE_SINGLE" | "MULTIPLE_CHOICE_MULTIPLE" | "SENTENCE_COMPLETION" | "NOTE_COMPLETION" | "SUMMARY_COMPLETION" | "TABLE_COMPLETION" | "FLOW_CHART_COMPLETION" | "SHORT_ANSWER" | "MATCHING_INFORMATION" | "MATCHING_HEADINGS" | "MATCHING_FEATURES" | "MATCHING_SENTENCE_ENDINGS";
-type WordLimit = "ONE_WORD" | "TWO_WORDS" | "TWO_WORDS_AND_ONE_NUMBER" | "THREE_WORDS_AND_ONE_NUMBER";
+type WordLimit = "ONE_WORD" | "ONE_WORD_AND_ONE_NUMBER" | "TWO_WORDS" | "TWO_WORDS_AND_ONE_NUMBER" | "THREE_WORDS_AND_ONE_NUMBER";
 type InputMode = "TEXT_ENTRY" | "SHARED_CHOICE_POOL";
 type Candidate = { id?: number; label: string; text: string };
 type Question = { id?: number; questionText: string; answer: string; explanation: string; options: string[]; blankText: string; alternatives: string[] };
@@ -18,7 +18,7 @@ const names: Record<Variant, string> = {
   MATCHING_INFORMATION: "Matching Information", MATCHING_HEADINGS: "Matching Headings", MATCHING_FEATURES: "Matching Features", MATCHING_SENTENCE_ENDINGS: "Matching Sentence Endings",
 };
 const fixedAnswers: Partial<Record<Variant, string[]>> = { TRUE_FALSE_NOT_GIVEN: ["TRUE", "FALSE", "NOT GIVEN"], YES_NO_NOT_GIVEN: ["YES", "NO", "NOT GIVEN"] };
-const limits: Record<WordLimit, string> = { ONE_WORD: "ONE WORD ONLY", TWO_WORDS: "NO MORE THAN TWO WORDS", TWO_WORDS_AND_ONE_NUMBER: "NO MORE THAN TWO WORDS AND/OR A NUMBER", THREE_WORDS_AND_ONE_NUMBER: "NO MORE THAN THREE WORDS AND/OR A NUMBER" };
+const limits: Record<WordLimit, string> = { ONE_WORD: "ONE WORD ONLY", ONE_WORD_AND_ONE_NUMBER: "ONE WORD AND/OR A NUMBER", TWO_WORDS: "NO MORE THAN TWO WORDS", TWO_WORDS_AND_ONE_NUMBER: "NO MORE THAN TWO WORDS AND/OR A NUMBER", THREE_WORDS_AND_ONE_NUMBER: "NO MORE THAN THREE WORDS AND/OR A NUMBER" };
 const variants = Object.keys(names) as Variant[];
 const emptyQuestion = (): Question => ({ questionText: "", answer: "", explanation: "", options: ["", ""], blankText: "", alternatives: [] });
 const emptyTextPart = (): Part => ({ text: "", questionIndex: null, sourceText: null });
@@ -26,7 +26,7 @@ const questionPart = (questionIndex: number, sourceText: string | null = null): 
 const optionLabel = (index: number) => String.fromCharCode(65 + index);
 const blankToken = (questionNumber: number) => `⟦Câu ${questionNumber}⟧`;
 const isStructured = (variant: Variant) => variant === "TABLE_COMPLETION" || variant === "FLOW_CHART_COMPLETION";
-const supportsParagraphLayout = (variant: Variant, mode: InputMode) => variant === "SENTENCE_COMPLETION" || variant === "NOTE_COMPLETION" || (variant === "SUMMARY_COMPLETION" && mode === "TEXT_ENTRY");
+const supportsParagraphLayout = (variant: Variant) => variant === "SENTENCE_COMPLETION" || variant === "NOTE_COMPLETION" || variant === "SUMMARY_COMPLETION";
 const isTextEntry = (variant: Variant, mode: InputMode) => ["SENTENCE_COMPLETION", "NOTE_COMPLETION", "TABLE_COMPLETION", "FLOW_CHART_COMPLETION", "SHORT_ANSWER"].includes(variant) || (variant === "SUMMARY_COMPLETION" && mode === "TEXT_ENTRY");
 const isSharedChoice = (variant: Variant, mode: InputMode) => variant.startsWith("MATCHING_") || (variant === "SUMMARY_COMPLETION" && mode === "SHARED_CHOICE_POOL");
 const isMultiple = (variant: Variant) => variant === "MULTIPLE_CHOICE_MULTIPLE";
@@ -69,12 +69,12 @@ function wordError(value: string, limit: WordLimit) {
   if (!value.trim()) return "";
   let words = 0, numbers = 0;
   for (const token of value.normalize("NFC").trim().split(/\s+/u)) {
-    if (/^[0-9]+$/u.test(token)) numbers++;
+    if (/^(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)$/u.test(token)) numbers++;
     else if (/^[\p{L}\p{M}]+(?:-[\p{L}\p{M}]+)*$/u.test(token)) words++;
     else return "Chỉ hỗ trợ từ, từ có gạch nối hoặc số nguyên.";
   }
-  const maxWords = limit === "ONE_WORD" ? 1 : limit === "THREE_WORDS_AND_ONE_NUMBER" ? 3 : 2;
-  const maxNumbers = limit === "TWO_WORDS_AND_ONE_NUMBER" || limit === "THREE_WORDS_AND_ONE_NUMBER" ? 1 : 0;
+  const maxWords = limit === "ONE_WORD" || limit === "ONE_WORD_AND_ONE_NUMBER" ? 1 : limit === "THREE_WORDS_AND_ONE_NUMBER" ? 3 : 2;
+  const maxNumbers = limit === "ONE_WORD_AND_ONE_NUMBER" || limit === "TWO_WORDS_AND_ONE_NUMBER" || limit === "THREE_WORDS_AND_ONE_NUMBER" ? 1 : 0;
   return words > maxWords || numbers > maxNumbers ? `Đáp án vượt giới hạn ${limits[limit]}.` : "";
 }
 
@@ -205,7 +205,7 @@ export function QuestionGroups({ passageId, canCreate, onDirtyChange }: { passag
     const nextSources = new Map<number, string>();
     sourceTextByQuestion(template).forEach((sourceText, currentIndex) => nextSources.set(currentIndex >= questionIndex ? currentIndex + 1 : currentIndex, sourceText));
     nextSources.set(questionIndex, answer);
-    setQuestions(current => [...current.slice(0, questionIndex), { ...emptyQuestion(), answer }, ...current.slice(questionIndex)]);
+    setQuestions(current => [...current.slice(0, questionIndex), { ...emptyQuestion(), answer: textEntry ? answer : "" }, ...current.slice(questionIndex)]);
     setParagraphDraft(shiftedDraft);
     setTemplate(current => current?.kind === "PARAGRAPH"
       ? { ...current, paragraphs: paragraphTemplateFromDraft(shiftedDraft, firstNumber, nextSources) }
@@ -350,7 +350,7 @@ export function QuestionGroups({ passageId, canCreate, onDirtyChange }: { passag
     <h3>{editing ? "Chỉnh sửa nhóm" : "Thêm nhóm câu hỏi"}</h3><p className={styles.help}>Số câu được đánh tự động theo thứ tự trong passage.</p>
     <label>Dạng câu hỏi<select value={variant} disabled={!!editing} onChange={event => changeVariant(event.target.value as Variant)}>{variants.map(key => <option key={key} value={key}>{names[key]}</option>)}</select></label>
     {variant === "SUMMARY_COMPLETION" && <label>Cách trả lời<select value={inputMode} disabled={!!editing} onChange={event => { setInputMode(event.target.value as InputMode); setCandidates([]); setQuestions([emptyQuestion()]); setTemplate(null); setParagraphDraft(""); setSelectedRange({ start: 0, end: 0 }); }}><option value="TEXT_ENTRY">Tự nhập đáp án</option><option value="SHARED_CHOICE_POOL">Chọn từ danh sách chung</option></select></label>}
-    {supportsParagraphLayout(variant, inputMode) && <label>Cách trình bày<select value={template?.kind === "PARAGRAPH" ? "PARAGRAPH" : "INDIVIDUAL"} onChange={event => selectParagraphLayout(event.target.value === "PARAGRAPH")}><option value="INDIVIDUAL">Mỗi câu hỏi có prompt riêng</option><option value="PARAGRAPH">Một đoạn văn có nhiều ô điền từ</option></select></label>}
+    {supportsParagraphLayout(variant) && <label>Cách trình bày<select value={template?.kind === "PARAGRAPH" ? "PARAGRAPH" : "INDIVIDUAL"} onChange={event => selectParagraphLayout(event.target.value === "PARAGRAPH")}><option value="INDIVIDUAL">Mỗi câu hỏi có prompt riêng</option><option value="PARAGRAPH">Một đoạn văn có nhiều ô điền từ</option></select></label>}
     {textEntry && <><label>Giới hạn đáp án<select value={wordLimit} onChange={event => setWordLimit(event.target.value as WordLimit)}>{Object.entries(limits).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label><p className={styles.help}>Hỗ trợ từ, từ có gạch nối và số nguyên.</p></>}
     {(!textEntry || tableFlow || variant === "SHORT_ANSWER") && <label>Hướng dẫn chung<textarea value={instructions} onChange={event => setInstructions(event.target.value)} rows={3} /></label>}
     {sharedChoice && <fieldset className={styles.choiceEditor}><legend>Danh sách lựa chọn dùng chung</legend>{candidates.map((candidate, index) => <div className={styles.choiceRow} key={candidate.id ?? index}><input value={candidate.label} disabled={!!candidate.id} aria-label="Mã lựa chọn" onChange={event => setCandidates(current => current.map((item, i) => i === index ? { ...item, label: event.target.value } : item))} /><input value={candidate.text} aria-label="Nội dung lựa chọn" onChange={event => setCandidates(current => current.map((item, i) => i === index ? { ...item, text: event.target.value } : item))} /><button type="button" className={styles.open} onClick={() => setCandidates(current => current.filter((_, i) => i !== index))}>Xóa</button></div>)}<button type="button" className={styles.open} onClick={() => setCandidates(current => [...current, { label: "", text: "" }])}>+ Thêm lựa chọn</button>{["MATCHING_INFORMATION", "MATCHING_FEATURES"].includes(variant) && <label><input type="checkbox" checked={reuse} onChange={event => setReuse(event.target.checked)} /> Cho phép sử dụng lại</label>}</fieldset>}

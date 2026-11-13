@@ -68,6 +68,8 @@
 .paragraphBlank input { width: clamp(4.5rem, 10vw, 8rem); min-height: 2rem; padding: .1rem .25rem; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: var(--surface); color: var(--text); font: inherit; line-height: 1.25; }
 .paragraphBlank input:focus-visible { border-color: var(--primary); }
 .paragraphBlank input[aria-invalid="true"] { border-bottom-color: var(--danger); }
+.paragraphChoice { width: clamp(8rem, 18vw, 13rem); max-width: 100%; min-height: 2.15rem; padding: .2rem .35rem; border: 1px solid var(--border); border-radius: var(--radius, 8px); background: var(--surface); color: var(--text); font: inherit; }
+.paragraphChoice:focus-visible { outline: 3px solid var(--selection, #BFDBFE); outline-offset: 2px; }
 .paragraphBlankWrap > .error { font-size: .72rem; line-height: 1.35; }
 .paragraphReviewBlank { display: inline-flex; align-items: center; gap: .35rem; max-width: min(100%, 17rem); margin: 0 .2rem; padding: .12rem .45rem .12rem .15rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); line-height: 1.4; vertical-align: middle; }
 .paragraphReviewBlank > span { overflow-wrap: anywhere; }

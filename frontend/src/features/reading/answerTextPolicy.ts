@@ -1,4 +1,4 @@
-export type WordLimitMode = "ONE_WORD" | "TWO_WORDS" | "TWO_WORDS_AND_ONE_NUMBER" | "THREE_WORDS_AND_ONE_NUMBER" | null;
+export type WordLimitMode = "ONE_WORD" | "ONE_WORD_AND_ONE_NUMBER" | "TWO_WORDS" | "TWO_WORDS_AND_ONE_NUMBER" | "THREE_WORDS_AND_ONE_NUMBER" | null;
 
 export function answerWordLimitError(value: string, mode: WordLimitMode | string | null): string | null {
   if (!value.trim() || !mode) return null;
@@ -7,16 +7,17 @@ export function answerWordLimitError(value: string, mode: WordLimitMode | string
   let numbers = 0;
   const tokens = value.normalize("NFC").trim().replace(/\s+/gu, " ").toLocaleLowerCase().split(" ");
   for (const token of tokens) {
-    if (/^[0-9]+$/u.test(token)) numbers++;
+    if (/^(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)$/u.test(token)) numbers++;
     else if (/^[\p{L}\p{M}]+(?:-[\p{L}\p{M}]+)*$/u.test(token)) words++;
-    else return "Hiện chỉ hỗ trợ từ, từ nối bằng dấu gạch ngang và số nguyên viết bằng chữ số.";
+    else return "Hiện chỉ hỗ trợ từ, từ nối bằng dấu gạch ngang và số nguyên (có thể dùng dấu phẩy phân tách hàng nghìn).";
   }
 
-  const maxWords = mode === "ONE_WORD" ? 1 : mode === "THREE_WORDS_AND_ONE_NUMBER" ? 3 : 2;
-  const maxNumbers = mode === "TWO_WORDS_AND_ONE_NUMBER" || mode === "THREE_WORDS_AND_ONE_NUMBER" ? 1 : 0;
-  if (!["ONE_WORD", "TWO_WORDS", "TWO_WORDS_AND_ONE_NUMBER", "THREE_WORDS_AND_ONE_NUMBER"].includes(mode)) return "Giới hạn đáp án không hợp lệ.";
+  const maxWords = mode === "ONE_WORD" || mode === "ONE_WORD_AND_ONE_NUMBER" ? 1 : mode === "THREE_WORDS_AND_ONE_NUMBER" ? 3 : 2;
+  const maxNumbers = mode === "ONE_WORD_AND_ONE_NUMBER" || mode === "TWO_WORDS_AND_ONE_NUMBER" || mode === "THREE_WORDS_AND_ONE_NUMBER" ? 1 : 0;
+  if (!["ONE_WORD", "ONE_WORD_AND_ONE_NUMBER", "TWO_WORDS", "TWO_WORDS_AND_ONE_NUMBER", "THREE_WORDS_AND_ONE_NUMBER"].includes(mode)) return "Giới hạn đáp án không hợp lệ.";
   if (words > maxWords || numbers > maxNumbers) {
     return mode === "ONE_WORD" ? "Đáp án chỉ được có tối đa một từ."
+      : mode === "ONE_WORD_AND_ONE_NUMBER" ? "Đáp án chỉ được có tối đa một từ và một số."
       : mode === "TWO_WORDS" ? "Đáp án chỉ được có tối đa hai từ."
       : mode === "THREE_WORDS_AND_ONE_NUMBER" ? "Đáp án chỉ được có tối đa ba từ và một số."
       : "Đáp án chỉ được có tối đa hai từ và một số.";

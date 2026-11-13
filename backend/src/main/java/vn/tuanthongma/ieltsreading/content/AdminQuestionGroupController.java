@@ -42,7 +42,8 @@ class AdminQuestionGroupController {
     private static final Set<String> TEMPLATE_COMPLETION = Set.of("TABLE_COMPLETION", "FLOW_CHART_COMPLETION");
     private static final Set<String> PARAGRAPH_TEMPLATE_COMPLETION = Set.of("SENTENCE_COMPLETION", "NOTE_COMPLETION", "SUMMARY_COMPLETION");
     private static final Map<String, String> WORD_LIMITS = Map.of(
-            "ONE_WORD", "ONE WORD ONLY", "TWO_WORDS", "NO MORE THAN TWO WORDS",
+            "ONE_WORD", "ONE WORD ONLY", "ONE_WORD_AND_ONE_NUMBER", "ONE WORD AND/OR A NUMBER",
+            "TWO_WORDS", "NO MORE THAN TWO WORDS",
             "TWO_WORDS_AND_ONE_NUMBER", "NO MORE THAN TWO WORDS AND/OR A NUMBER",
             "THREE_WORDS_AND_ONE_NUMBER", "NO MORE THAN THREE WORDS AND/OR A NUMBER");
 
@@ -276,7 +277,7 @@ class AdminQuestionGroupController {
     }
     private boolean usesParagraphTemplate(GroupInput input, String variant) {
         return input.presentationTemplate() != null && "PARAGRAPH".equals(input.presentationTemplate().kind())
-                && PARAGRAPH_TEMPLATE_COMPLETION.contains(variant) && isTextEntry(variant, input.answerInputMode());
+                && PARAGRAPH_TEMPLATE_COMPLETION.contains(variant);
     }
     private String instructions(GroupInput input, String variant) {
         if (TEMPLATE_COMPLETION.contains(variant) || "SHORT_ANSWER".equals(variant)) return input.instructions().strip();
